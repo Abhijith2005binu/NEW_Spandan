@@ -1,12 +1,14 @@
 import { jest } from '@jest/globals'
+import mongoose from 'mongoose'
 
 // ---- Mock dependencies BEFORE importing the route ----
 jest.unstable_mockModule('../models/QuestionBank.js', () => {
   const data = []
-  let nextId = 1
+  let nextN = 1
+  // Use real ObjectId strings so the route's isValid() gate passes
   const make = (doc) => ({
     ...doc,
-    _id: `mock-${nextId++}`,
+    _id: new mongoose.Types.ObjectId().toString(),
     createdAt: new Date(),
     updatedAt: new Date(),
     toObject() { return this }
@@ -39,7 +41,7 @@ jest.unstable_mockModule('../models/QuestionBank.js', () => {
         return data.find(d =>
           d._id === query._id &&
           String(d.owner) === String(query.owner) &&
-          (query.isArchived === undefined || d.isArchived === query.isArchived)
+          (query.isArchived === undefined || !!d.isArchived === !!query.isArchived)
         ) || null
       }),
       findOneAndUpdate: jest.fn(async (query, update) => {
@@ -147,8 +149,17 @@ describe('QuestionBank API', () => {
   })
 
   test('GET /:id/import-ready returns a clean payload', async () => {
-    const list = await request(app).get('/api/question-bank')
-    const id = list.body.items[0]._id
+    // Seed fresh so this test does not depend on prior state
+    const seed = await request(app)
+      .post('/api/question-bank/from-room-question')
+      .send({
+        roomQuestion: {
+          type: 'MCQ',
+          question: 'Seed for import-ready test',
+          options: [{ text: 'A', isCorrect: true }]
+        }
+      })
+    const id = seed.body.question._id
     const res = await request(app).get(`/api/question-bank/${id}/import-ready`)
     expect(res.status).toBe(200)
     expect(res.body.question._id).toBeUndefined() // stripped
@@ -163,12 +174,22 @@ describe('QuestionBank API', () => {
   })
 
   test('DELETE /:id archives a question (soft delete)', async () => {
-    const list = await request(app).get('/api/question-bank')
-    const id = list.body.items[0]._id
+    // Seed fresh
+    const seed = await request(app)
+      .post('/api/question-bank/from-room-question')
+      .send({
+        roomQuestion: {
+          type: 'MCQ',
+          question: 'Seed for archive test',
+          options: [{ text: 'A', isCorrect: true }]
+        }
+      })
+    const before = await request(app).get('/api/question-bank')
+    const id = seed.body.question._id
     const res = await request(app).delete(`/api/question-bank/${id}`)
     expect(res.status).toBe(200)
     const after = await request(app).get('/api/question-bank')
-    expect(after.body.total).toBe(1) // one was archived
+    expect(after.body.total).toBe(before.body.total - 1)
   })
 
   test('GET /meta/topics returns topic aggregation', async () => {
