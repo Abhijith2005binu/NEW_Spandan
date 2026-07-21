@@ -40,9 +40,9 @@ function QuestionBankPage() {
     try {
       const ready = await prepareImport(bankQ._id)
       stageForImport(ready)
-      showToast(?? Staged   � open a room to add it, 'success')
+      showToast('✅ Staged — open a room to add it', 'success')
     } catch (e) {
-      showToast(? , 'error')
+      showToast('⚠️ Could not stage question', 'error')
     } finally {
       setBusyId(null)
     }
@@ -52,9 +52,9 @@ function QuestionBankPage() {
     if (!window.confirm('Archive this question?')) return
     try {
       await archive(q._id)
-      showToast('??? Archived', 'success')
+      showToast('✅ Staged — open a room to add it', 'success')
     } catch (e) {
-      showToast(? , 'error')
+      showToast('⚠️ Could not stage question', 'error')
     }
   }, [archive])
 
@@ -67,7 +67,7 @@ function QuestionBankPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700 }}>
-                ?? Question Bank
+                📚 Question Bank
               </h1>
               <p style={{ margin: '4px 0 0', opacity: 0.9, fontSize: '14px' }}>
                 Save questions once. Reuse them in any room.
@@ -85,15 +85,15 @@ function QuestionBankPage() {
             <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b',
                           padding: '12px 16px', borderRadius: 8, marginBottom: 16,
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>? {error}</span>
-              <button onClick={clearError} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b' }}>?</button>
+              <span>⚠️ {error}</span>
+              <button onClick={clearError} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b' }}>×</button>
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
-              type=text
-              placeholder=?? Search questions tags topics�
+              type="text"
+              placeholder="🔍 Search questions, tags, topics..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               style={{ flex: '1 1 280px', minWidth: 220, padding: '10px 14px',
@@ -104,17 +104,17 @@ function QuestionBankPage() {
               style={{ padding: '10px 14px', background: 'var(--bg-card)',
                        border: '1px solid var(--border-color)', color: 'var(--text-primary)',
                        borderRadius: 8, fontSize: 14, minWidth: 160 }}>
-              <option value=>All topics</option>
- {topics.map(t => <option key={t.name} value={t.name}>?? {t.name} ({t.count})</option>)}
- </select>
- <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
- style={{ padding: '10px 14px', background: 'var(--bg-card)',
- border: '1px solid var(--border-color)', color: 'var(--text-primary)',
- borderRadius: 8, fontSize: 14 }}>
- <option value=>Any difficulty</option>
-              <option value=easy>Easy</option>
-              <option value=medium>Medium</option>
-              <option value=hard>Hard</option>
+              <option value="">All topics</option>
+              {topics.map(t => <option key={t.name} value={t.name}>🏷️ {t.name} ({t.count})</option>)}
+            </select>
+            <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
+              style={{ padding: '10px 14px', background: 'var(--bg-card)',
+                       border: '1px solid var(--border-color)', color: 'var(--text-primary)',
+                       borderRadius: 8, fontSize: 14 }}>
+              <option value="">Any difficulty</option>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
             </select>
             <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
               {total} question{total !== 1 ? 's' : ''}
@@ -123,17 +123,17 @@ function QuestionBankPage() {
 
           {isLoading ? (
             <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-secondary)' }}>
-              Loading�
+              Loading…
             </div>
           ) : items.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 80, color: 'var(--text-secondary)',
                           background: 'var(--bg-card)', borderRadius: 16,
                           border: '1px dashed var(--border-color)' }}>
-              <div style={{ fontSize: 56, marginBottom: 12 }}>??</div>
+              <div style={{ fontSize: 56, marginBottom: 12 }}>📭</div>
               <h3 style={{ color: 'var(--text-primary)', marginBottom: 8 }}>Your bank is empty</h3>
               <p style={{ fontSize: 14, maxWidth: 460, margin: '0 auto' }}>
                 Open any room, generate or write questions, then click
-                <strong> ?? Save to Bank</strong> on each one to build your library.
+                <strong> 💾 Save to Bank</strong> on each one to build your library.
               </p>
             </div>
           ) : (
@@ -160,7 +160,7 @@ function QuestionBankPage() {
                       {q.topic && (
                         <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11,
                                       fontWeight: 700, background: '#8b5cf620', color: '#a78bfa' }}>
-                          ?? {q.topic}
+                          🏷️ {q.topic}
                         </span>
                       )}
                       {(q.tags || []).map(t => (
@@ -175,7 +175,7 @@ function QuestionBankPage() {
                       {q.question}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                      {(q.options || []).filter(o => o.isCorrect).map(o => ? ).join(' � ') || <em>No correct answer marked</em>}
+                      {(q.options || []).filter(o => o.isCorrect).map(o => o.text).join(' • ') || <em>No correct answer marked</em>}
                     </div>
                   </div>
 
@@ -183,7 +183,7 @@ function QuestionBankPage() {
                     <button
                       onClick={() => handleAddToRoom(q)}
                       disabled={busyId === q._id}
-                      title=Stage this question � open a room to drop it in
+                      title="Stage this question — open a room to drop it in"
                       style={{
                         padding: '10px 14px', background: busyId === q._id ? '#94a3b8' : '#3b82f6',
                         color: 'white', border: 'none', borderRadius: 8, fontWeight: 700,
@@ -191,7 +191,7 @@ function QuestionBankPage() {
                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6
                       }}
                     >
-                      {busyId === q._id ? '�' : '?? Add to Room'}
+                      {busyId === q._id ? '⏳' : '➕ Add to Room'}
                     </button>
                     <button
                       onClick={() => handleArchive(q)}
@@ -202,7 +202,7 @@ function QuestionBankPage() {
                         cursor: 'pointer', fontSize: 12
                       }}
                     >
-                      ??? Archive
+                      🗑️ Archive
                     </button>
                   </div>
                 </div>
