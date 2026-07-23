@@ -115,6 +115,28 @@ router.post('/', authorize('student'), async (req, res) => {
       return res.status(404).json({ error: 'Question not found' })
     }
 
+    // Phase 3 — response-window enforcement. A poll is answerable only while it is the room's LIVE
+    // poll (room.currentQuestion), or briefly after it is superseded (until its closeAt = next-launch
+    // time + POLL_RESPONSE_GRACE_MS, which covers in-flight/late submits — see setLiveQuestion). Any
+    // other case — an old poll a bot tries to back-fill, a never-launched question, or ANY poll once
+    // the room has ended — is refused. This does not weaken the live poll (still answerable) and
+    // reveals nothing; it only closes the back-fill hole. Room is read fresh (the live pointer must
+    // not be stale); closeAt is read fresh only on the rare non-current path (the cached question copy
+    // can lag the stamp written on launch), so the hot path stays a single small room read.
+    const Room = (await import('../models/Room.js')).default
+    const { getRoomLive } = await import('../services/roomLiveCache.js')
+    const roomLive = await getRoomLive(Room, roomId) // Redis hit → no Mongo read; miss/Redis-off → Mongo
+    if (!roomLive || roomLive.endedAt) {
+      return res.status(409).json({ error: 'poll_closed' })
+    }
+    if (String(questionId) !== String(roomLive.currentQuestion || '')) {
+      const fresh = await Question.findById(questionId).select('closeAt')
+      const closeAt = fresh?.closeAt ? new Date(fresh.closeAt).getTime() : 0
+      if (!closeAt || Date.now() >= closeAt) {
+        return res.status(409).json({ error: 'poll_closed' })
+      }
+    }
+
     // Check if answer is correct based on question type
     let isCorrect = false
     

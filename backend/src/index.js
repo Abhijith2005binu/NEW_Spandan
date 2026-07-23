@@ -396,7 +396,24 @@ async function verifyRoomOwner(socket, roomCode) {
 async function setLiveQuestion(roomId, questionId) {
   try {
     const Room = (await import('./models/Room.js')).default
+    const Question = (await import('./models/Question.js')).default
+    const GRACE = Number(process.env.POLL_RESPONSE_GRACE_MS) || 10000
+    // Close the OUTGOING poll (the one leaving the live slot) to new responses, GRACE ms from now.
+    // The grace covers in-flight/late submits; once it passes, POST /responses refuses that poll, so
+    // a bot can no longer back-fill answers to polls that have already moved on. (The last poll of a
+    // session is never superseded, so it stays open until the room ends — see the POST guard.)
+    const room = await Room.findById(roomId).select('currentQuestion')
+    const outgoing = room?.currentQuestion
+    if (outgoing && String(outgoing) !== String(questionId)) {
+      await Question.updateOne({ _id: outgoing }, { $set: { closeAt: new Date(Date.now() + GRACE) } })
+    }
+    // The incoming poll is now live — clear any stale closeAt (e.g. if it is being re-launched).
+    await Question.updateOne({ _id: questionId }, { $set: { closeAt: null } })
     await Room.updateOne({ _id: roomId }, { currentQuestion: questionId })
+    // Refresh the shared room-live cache so POST /responses can check the live poll without a Mongo
+    // read per submit (see services/roomLiveCache.js). Launch is the sole writer of this value.
+    const { setRoomLive } = await import('./services/roomLiveCache.js')
+    await setRoomLive(roomId, questionId)
   } catch { /* non-fatal */ }
 }
 
