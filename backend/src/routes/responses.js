@@ -186,9 +186,8 @@ router.post('/', authorize('student'), async (req, res) => {
             error: 'Already responded to this question',
             existingResponse: existingResponse ? {
               selectedOption: existingResponse.selectedOption,
-              selectedOptions: existingResponse.selectedOptions,
-              isCorrect: existingResponse.isCorrect,
-              points: existingResponse.points
+              selectedOptions: existingResponse.selectedOptions
+              // isCorrect + points withheld — same reason as the success response above.
             } : undefined
           })
         }
@@ -206,13 +205,15 @@ router.post('/', authorize('student'), async (req, res) => {
     live?.scheduleLeaderboard(roomId)
     const rankInfo = (live ? await live.getRank(roomId, studentId) : null) || {}
 
+    // Withhold the answerer's OWN correctness (isCorrect + points) from the immediate response while
+    // the session is live — otherwise a student (or a dummy / second account) learns the answer the
+    // instant they submit, straight from the Network tab, and can relay it. The answer is still
+    // SCORED and saved server-side; the student sees their result via the results path once polls are
+    // no longer live. The client only uses `rank` from this response, so nothing it renders changes.
+    const { isCorrect: _omitIsCorrect, points: _omitPoints, ...safeResponse } = savedResponse
     res.status(201).json({
       success: true,
-      response: {
-        ...savedResponse,
-        isCorrect,
-        points
-      },
+      response: safeResponse,
       rank: rankInfo.rank ?? null,
       totalParticipants: rankInfo.totalParticipants ?? null
     })
@@ -541,10 +542,24 @@ router.get('/room/:roomId/student/:studentId', async (req, res) => {
 
     debug(`[responses] Found ${questions.length} questions for room ${roomId}`)
 
+    // While the room is LIVE, the currently-active poll (room.currentQuestion) must not reveal its
+    // correct answer to ANYONE — not even a student who already answered (else a dummy / second
+    // account could answer randomly, read isCorrect/points, and relay it). We still return the
+    // question with the student's marked answer (the frontend renders it neutrally), but strip which
+    // option is correct and withhold the student's own isCorrect + pointsEarned until the poll is no
+    // longer current (next launch / room end → revealed via the normal path / results snapshot).
+    const activeQid = (!ended && room?.currentQuestion) ? String(room.currentQuestion) : null
+
     // Merge questions with response data
     const questionsWithResponses = questions.map(q => {
       const qIdStr = toIdString(q._id)
       const studentResponse = responseMap[qIdStr]
+      const isActive = !!activeQid && qIdStr === activeQid
+      // Strip which option is correct for the still-live poll. Map to NEW objects — the question list
+      // is a shared cache and must never be mutated (see the cache's read-only invariant).
+      const options = isActive
+        ? q.options.map(o => (o && typeof o === 'object') ? (({ isCorrect, ...opt }) => opt)(o) : o)
+        : q.options
       
       if (studentResponse) {
         debug(`[responses] Matched question ${qIdStr} with response, selectedOption: ${studentResponse.selectedOption}`)
@@ -554,17 +569,20 @@ router.get('/room/:roomId/student/:studentId', async (req, res) => {
         _id: qIdStr,
         question: q.question,
         type: q.type,
-        options: q.options,
+        options,
         segmentIndex: q.segmentIndex,
         maxPoints: q.points,
         timeToAnswer: q.timeToAnswer,
         answered: !!studentResponse,
+        // Tells the frontend to render this still-live question neutrally: marked answer in blue, or
+        // a "missed" tag if unanswered — no correct/incorrect until it is revealed.
+        ...(isActive ? { resultPending: true } : {}),
         ...(studentResponse && {
           selectedOption: studentResponse.selectedOption,
           selectedOptions: studentResponse.selectedOptions || [studentResponse.selectedOption],
-          isCorrect: studentResponse.isCorrect,
           responseTime: studentResponse.responseTime,
-          pointsEarned: studentResponse.points
+          // isCorrect + pointsEarned both reveal correctness → withhold for the live poll, send once past.
+          ...(isActive ? {} : { isCorrect: studentResponse.isCorrect, pointsEarned: studentResponse.points })
         }),
         createdAt: q.createdAt
       }

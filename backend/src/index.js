@@ -374,15 +374,47 @@ async function authenticateSocket(socket, token) {
 }
 
 // Teacher-only + room-ownership guard for privileged events (question:start/end, new_question).
+// Returns the room doc when the socket is the room's teacher-owner, else null. Returning the room
+// (not just a bool) lets callers use room._id (e.g. to mark the current question) without re-looking
+// it up; truthiness of the result is still a valid owner check.
 async function verifyRoomOwner(socket, roomCode) {
-  if (socket.data?.role !== 'teacher' || !roomCode) return false
+  if (socket.data?.role !== 'teacher' || !roomCode) return null
   try {
     const Room = (await import('./models/Room.js')).default
     const room = await Room.findByCode(roomCode)
-    return !!room && room.teacher.toString() === String(socket.data.userId)
+    return (room && room.teacher.toString() === String(socket.data.userId)) ? room : null
   } catch {
-    return false
+    return null
   }
+}
+
+// Mark which question is CURRENTLY LIVE for a room. Set on every launch and NEVER cleared: the read
+// endpoints withhold the correct answer of `currentQuestion` from students while it is live, and it
+// stays the current one until the NEXT launch overwrites it (or the room ends). This is the only
+// desync-safe "poll is live" signal — a per-student/teacher timer can't be, since each student runs
+// their own answering window. Fire-and-forget.
+async function setLiveQuestion(roomId, questionId) {
+  try {
+    const Room = (await import('./models/Room.js')).default
+    await Room.updateOne({ _id: roomId }, { currentQuestion: questionId })
+  } catch { /* non-fatal */ }
+}
+
+// Remove answer-revealing fields (which option is correct, and the explanation) from a question
+// before it is broadcast to STUDENTS on launch. Students receive this over the socket, so leaving
+// the answer in it lets them read `isCorrect` straight from the browser's WS frames. Removing it
+// breaks nothing: the teacher renders from its own local copy, scoring is computed server-side from
+// the submitted option index, and the answer is revealed afterwards through the results path. Option
+// order/count are preserved (students submit answers by index).
+function sanitizeQuestionForStudents(q) {
+  if (!q || typeof q !== 'object') return q
+  const { explanation, ...rest } = q
+  if (Array.isArray(rest.options)) {
+    rest.options = rest.options.map(o =>
+      (o && typeof o === 'object') ? (({ isCorrect, ...opt }) => opt)(o) : o
+    )
+  }
+  return rest
 }
 
 // Authenticate at connection time from the handshake token (client already sends auth:{token}),
@@ -487,10 +519,12 @@ io.on('connection', (socket) => {
   // Question events — teacher-only and restricted to the room's OWNER (server-verified),
   // so a student can no longer forge question start/end or push a fake question to the room.
   socket.on('question:start', async (data) => {
-    if (!(await verifyRoomOwner(socket, data?.roomCode))) return
+    const room = await verifyRoomOwner(socket, data?.roomCode)
+    if (!room) return
+    if (data.questionId) setLiveQuestion(room._id, data.questionId)
     io.to(data.roomCode).emit('question:started', {
       questionId: data.questionId,
-      question: data.question,
+      question: sanitizeQuestionForStudents(data.question),
       timer: data.timer,
       startTime: Date.now()
     })
@@ -506,12 +540,15 @@ io.on('connection', (socket) => {
 
   // New question pushed by the teacher (manually created)
   socket.on('new_question', async (data) => {
-    if (!(await verifyRoomOwner(socket, data?.roomCode))) {
+    const room = await verifyRoomOwner(socket, data?.roomCode)
+    if (!room) {
       console.warn('new_question rejected — not the room owner:', socket.id)
       return
     }
     if (data.question) {
-      io.to(data.roomCode).emit('new_question', data.question)
+      const qId = data.question._id || data.question.id
+      if (qId) setLiveQuestion(room._id, qId)
+      io.to(data.roomCode).emit('new_question', sanitizeQuestionForStudents(data.question))
     }
   })
 
