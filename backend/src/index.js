@@ -326,8 +326,9 @@ const otpLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   // Registration-code sends trigger real emails, so this endpoint gets a tighter per-IP cap than the
   // general auth limiter to prevent email-bombing. Legit sign-ups are rare per IP; the finer control
-  // (60s resend cooldown + 5-send cap) is per-email in otpService. Sized to still tolerate a shared NAT.
-  max: 100, // FAILED+successful sends per IP per hour
+  // (60s resend cooldown + 5-send cap) is per-email in otpService. Sized to still tolerate a shared NAT
+  // (a campus behind one IP), so the default is well above 100. Override via OTP_LIMIT_PER_HOUR in .env.
+  max: Number(process.env.OTP_LIMIT_PER_HOUR) || 500, // sends per IP per hour
   message: { error: 'Too many verification requests, please try again later' }
 })
 
