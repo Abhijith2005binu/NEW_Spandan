@@ -30,7 +30,8 @@ function AuthPage() {
     sendRegistrationOtp,
     verifyRegistration,
     logout,
-    clearError
+    clearError,
+    sessionExpired
   } = useAuthStore()
   const { isDark, toggleTheme } = useThemeStore()
   const socket = useSocketStore(state => state.socket)
@@ -465,6 +466,21 @@ function AuthPage() {
                     : 'Join Spandan to start creating polls'}
             </p>
           </div>
+
+          {/* Session-expiry notice (shown when the app dropped an expired token, not a login error) */}
+          {sessionExpired && !validationError && !error && (
+            <div style={{
+              background: isDark ? 'rgba(245,158,11,0.15)' : '#fffbeb',
+              border: `1px solid ${isDark ? 'rgba(245,158,11,0.3)' : '#fde68a'}`,
+              borderRadius: 'var(--radius-sm)',
+              padding: '12px 16px',
+              marginBottom: '20px',
+              color: isDark ? '#fcd34d' : '#b45309',
+              fontSize: '14px'
+            }}>
+              Your session expired. Please sign in again.
+            </div>
+          )}
 
           {/* Error / Success messages */}
           {validationError && (

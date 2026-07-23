@@ -381,8 +381,40 @@ async function authenticateSocket(socket, token) {
   const u = await User.findById(decoded.userId).select('role').lean()
   socket.data.userId = decoded.userId
   socket.data.role = u?.role || null
+  socket.data.tokenExp = decoded.exp || null // seconds since epoch; used to enforce freshness below
   connectedUsers.set(socket.id, decoded.userId)
   return socket.data
+}
+
+// jwt.verify only runs at (re)connect, so a long-lived socket can outlive its token: its cached
+// socket.data.userId then becomes stale. These helpers enforce token freshness on the socket anyway.
+// room:join refuses an expired socket, and a timer proactively de-authenticates it AT expiry so a
+// student who is only PASSIVELY receiving polls is still told to re-login (the client turns the
+// `expired` signal into a graceful sign-out) instead of lingering "in the room but unable to answer".
+function socketTokenExpired(socket) {
+  const exp = socket.data?.tokenExp
+  return typeof exp === 'number' && exp * 1000 <= Date.now()
+}
+
+function deauthenticateSocket(socket) {
+  socket.data.userId = null
+  socket.data.role = null
+  connectedUsers.delete(socket.id)
+  socket.emit('authenticated', { success: false, error: 'Token expired', expired: true })
+}
+
+function scheduleSocketExpiry(socket) {
+  if (socket.data?._expiryTimer) { clearTimeout(socket.data._expiryTimer); socket.data._expiryTimer = null }
+  const exp = socket.data?.tokenExp
+  if (typeof exp !== 'number') return
+  const ms = exp * 1000 - Date.now()
+  if (ms <= 0) { deauthenticateSocket(socket); return }
+  // setTimeout overflows past ~24.8 days; clamp and, if we hit the clamp before the real expiry,
+  // reschedule for the remainder (harmless — real sockets never live that long anyway).
+  socket.data._expiryTimer = setTimeout(() => {
+    if (socketTokenExpired(socket)) deauthenticateSocket(socket)
+    else scheduleSocketExpiry(socket)
+  }, Math.min(ms, 2_147_000_000))
 }
 
 // Teacher-only + room-ownership guard for privileged events (question:start/end, new_question).
@@ -459,6 +491,8 @@ io.use(async (socket, next) => {
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id)
+  // Arm the proactive de-auth for a handshake-authenticated socket (io.use already ran authenticateSocket).
+  scheduleSocketExpiry(socket)
 
   // Re-authenticate on demand (also covers clients that auth via this event, not the handshake).
   socket.on('authenticate', async (data) => {
@@ -468,6 +502,7 @@ io.on('connection', (socket) => {
         return
       }
       await authenticateSocket(socket, data.token)
+      scheduleSocketExpiry(socket) // re-arm for the new token's expiry
       socket.emit('authenticated', { success: true })
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
@@ -484,6 +519,13 @@ io.on('connection', (socket) => {
     const userId = socket.data?.userId
     const role = socket.data?.role
     if (!userId) { socket.emit('room:error', { error: 'Not authenticated' }); return }
+    // Token this socket authenticated with has since lapsed — refuse the join and tell the client to
+    // re-login rather than trusting the userId cached at connect time.
+    if (socketTokenExpired(socket)) {
+      deauthenticateSocket(socket)
+      socket.emit('room:error', { error: 'Session expired' })
+      return
+    }
     if (!roomCode) return
     try {
       const Room = (await import('./models/Room.js')).default
@@ -582,6 +624,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('disconnect', () => {
+    if (socket.data?._expiryTimer) { clearTimeout(socket.data._expiryTimer); socket.data._expiryTimer = null }
     const userId = connectedUsers.get(socket.id)
     connectedUsers.delete(socket.id)
     console.log('Client disconnected:', socket.id, userId ? `(user: ${userId})` : '')
