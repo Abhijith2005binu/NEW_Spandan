@@ -321,6 +321,16 @@ const leaderboardLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' }
 })
 
+const otpLimiter = rateLimit({
+  store: rlStore('rl:otp:'),
+  windowMs: 60 * 60 * 1000, // 1 hour
+  // Registration-code sends trigger real emails, so this endpoint gets a tighter per-IP cap than the
+  // general auth limiter to prevent email-bombing. Legit sign-ups are rare per IP; the finer control
+  // (60s resend cooldown + 5-send cap) is per-email in otpService. Sized to still tolerate a shared NAT.
+  max: 100, // FAILED+successful sends per IP per hour
+  message: { error: 'Too many verification requests, please try again later' }
+})
+
 // Middleware
 app.use(helmet())
 app.use(cors({
@@ -330,6 +340,7 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }))
 app.use('/api/', apiLimiter)           // general /api/ routes
 app.use('/api/auth/', authLimiter)     // auth routes
+app.use('/api/auth/register/send-otp', otpLimiter)  // stricter cap on the email-sending step
 app.use('/api/responses/', responseLimiter)  // response submission routes
 app.use('/api/responses/leaderboard/', leaderboardLimiter)  // leaderboard routes (high limit for live sessions)
 

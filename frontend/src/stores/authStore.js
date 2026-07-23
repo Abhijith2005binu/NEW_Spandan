@@ -49,28 +49,46 @@ export const useAuthStore = create(
         }
       },
 
-      register: async (name, email, password, role) => {
+      // Registration is email-OTP verified (two steps). Step 1 requests a code; step 2 verifies it and
+      // creates the account. Only step 2 sets the auth session.
+      sendRegistrationOtp: async (name, email) => {
         set({ isLoading: true, error: null })
         try {
-          const response = await fetch(`${API_URL}/auth/register`, {
+          const response = await fetch(`${API_URL}/auth/register/send-otp`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password, role })
+            body: JSON.stringify({ name, email })
           })
-          
           const data = await response.json()
-          
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to send verification code')
+          }
+          set({ isLoading: false })
+          return data // { message, expiresInSec }
+        } catch (error) {
+          set({ error: error.message, isLoading: false })
+          throw error
+        }
+      },
+
+      verifyRegistration: async (name, email, password, role, otp) => {
+        set({ isLoading: true, error: null })
+        try {
+          const response = await fetch(`${API_URL}/auth/register/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password, role, otp })
+          })
+          const data = await response.json()
           if (!response.ok) {
             throw new Error(data.error || 'Registration failed')
           }
-          
-          set({ 
-            user: data.user, 
-            token: data.token, 
+          set({
+            user: data.user,
+            token: data.token,
             isAuthenticated: true,
-            isLoading: false 
+            isLoading: false
           })
-          
           return data
         } catch (error) {
           set({ error: error.message, isLoading: false })
