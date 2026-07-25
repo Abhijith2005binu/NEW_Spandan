@@ -9,7 +9,7 @@ function QuestionBankPage() {
   const { user } = useAuthStore()
   const {
     items, total, topics, isLoading, error,
-    fetchList, fetchTopics, prepareImport, stageForImport, archive, clearError
+    fetchList, fetchTopics, prepareImport, stageForImport, archive, clearError, exportBank
   } = useQuestionBankStore()
 
   const [search, setSearch] = useState('')
@@ -52,11 +52,29 @@ function QuestionBankPage() {
     if (!window.confirm('Archive this question?')) return
     try {
       await archive(q._id)
-      showToast('✅ Staged — open a room to add it', 'success')
+      showToast('✅ Archived', 'success')
     } catch (e) {
-      showToast('⚠️ Could not stage question', 'error')
+      showToast('⚠️ Could not archive question', 'error')
     }
   }, [archive])
+
+  const handleExport = async () => {
+    try {
+      const csvStr = await exportBank('csv')
+      const blob = new Blob([csvStr], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'question_bank.csv'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      showToast('✅ Exported successfully', 'success')
+    } catch (e) {
+      showToast('⚠️ Export failed', 'error')
+    }
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
@@ -73,7 +91,12 @@ function QuestionBankPage() {
                 Save questions once. Reuse them in any room.
               </p>
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+              <button 
+                onClick={handleExport}
+                style={{ padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+                📥 Export CSV
+              </button>
               <ThemeToggle />
               <ProfileDropdown user={user} />
             </div>
@@ -163,6 +186,10 @@ function QuestionBankPage() {
                           🏷️ {q.topic}
                         </span>
                       )}
+                      <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11,
+                                      fontWeight: 700, background: '#64748b20', color: '#94a3b8' }}>
+                        🤖 {q.provenance?.origin || 'manual'}
+                      </span>
                       {(q.tags || []).map(t => (
                         <span key={t} style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11,
                                               fontWeight: 600, background: '#ec489920', color: '#f472b6' }}>
@@ -172,10 +199,26 @@ function QuestionBankPage() {
                     </div>
                     <div style={{ color: 'var(--text-primary)', fontSize: 15,
                                   marginBottom: 8, lineHeight: 1.5, fontWeight: 500 }}>
-                      {q.question}
+                      {q.questionText || q.question}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 8 }}>
                       {(q.options || []).filter(o => o.isCorrect).map(o => o.text).join(' • ') || <em>No correct answer marked</em>}
+                    </div>
+                    
+                    {/* Provenance & Usage Details */}
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'flex', gap: 16, borderTop: '1px solid var(--border-color)', paddingTop: 8 }}>
+                      {q.provenance?.aiProvider && (
+                        <span><strong>Provider:</strong> {q.provenance.aiProvider}</span>
+                      )}
+                      {q.provenance?.editedBeforeApproval !== undefined && (
+                        <span><strong>Edited:</strong> {q.provenance.editedBeforeApproval ? 'Yes' : 'No'}</span>
+                      )}
+                      <span>
+                        <strong>Times Used:</strong> {q.usageHistory?.length || 0}
+                      </span>
+                      <span>
+                        <strong>Avg Correct:</strong> {q.usageHistory?.length ? (q.usageHistory.reduce((a, c) => a + (c.correctRate || 0), 0) / q.usageHistory.length * 100).toFixed(1) + '%' : 'N/A'}
+                      </span>
                     </div>
                   </div>
 

@@ -994,7 +994,10 @@ function RoomDetailPage() {
           options: questionData.options,
           timeToAnswer: questionData.timeToAnswer || roomSettings.timeToAnswer || 30,
           points: questionData.points || roomSettings.points || 100,
-          status: 'approved'
+          status: 'approved',
+          provenance: {
+            origin: 'manual'
+          }
         })
       })
 

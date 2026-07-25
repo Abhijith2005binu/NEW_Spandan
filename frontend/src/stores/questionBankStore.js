@@ -150,6 +150,26 @@ export const useQuestionBankStore = create((set, get) => ({
     set({ items: [], total: 0, topics: [], sessionSavedIds: new Set() })
   },
 
+  reuseQuestion: async (id, sessionId) => {
+    try {
+      const data = await questionBankApi.reuse(id, sessionId)
+      return data.question
+    } catch (e) {
+      set({ error: e.message || 'Failed to reuse question' })
+      throw e
+    }
+  },
+
+  exportBank: async (format = 'csv') => {
+    try {
+      const data = await questionBankApi.exportData(format)
+      return data
+    } catch (e) {
+      set({ error: e.message || 'Failed to export question bank' })
+      throw e
+    }
+  },
+
   clearError: () => set({ error: '' })
 }))
 

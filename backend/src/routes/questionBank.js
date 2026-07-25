@@ -74,10 +74,17 @@ const buildBankDocFromRoomQuestion = (raw, ownerId, sourceRoom, meta) => {
   return {
     ok: true,
     doc: {
-      owner: ownerId, type, question, options: normalizedOptions,
+      teacherId: ownerId, type, questionText: question, options: normalizedOptions,
       correctAnswer: sanitizeText(raw.correctAnswer || '', 200),
       explanation: sanitizeText(raw.explanation || '', 2000),
-      topic, difficulty, tags, sourceRoom: sourceRoom || null
+      topic, difficulty, tags,
+      provenance: {
+        origin: 'manual', // default if not specified
+        sourceSessionId: sourceRoom || null,
+        generatedAt: new Date(),
+        approvedAt: new Date(),
+        editedBeforeApproval: false
+      }
     }
   }
 }
@@ -97,14 +104,24 @@ router.get('/', async (req, res) => {
     const { search, topic, difficulty, page = 1, limit = 50 } = req.query
     const pageNum = Math.max(1, Math.min(1000, parseInt(page, 10) || 1))
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 50))
-    const query = { owner: req.user._id, isArchived: false }
+    const query = { teacherId: req.user._id, isArchived: false }
+    const { origin, tags } = req.query
     if (typeof search === 'string' && search.trim()) {
       const s = escapeRegex(search.trim().slice(0, 100))
       query.$or = [
-        { question: { $regex: s, $options: 'i' } },
+        { questionText: { $regex: s, $options: 'i' } },
         { tags: { $in: [new RegExp('^' + s + '$', 'i')] } },
         { topic: { $regex: s, $options: 'i' } }
       ]
+    }
+    if (typeof origin === 'string' && origin.trim()) {
+      query['provenance.origin'] = origin
+    }
+    if (typeof tags === 'string' && tags.trim()) {
+      const tagsArray = tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+      if (tagsArray.length > 0) {
+        query.tags = { $all: tagsArray }
+      }
     }
     if (typeof topic === 'string' && topic.trim()) {
       query.topic = new RegExp('^' + escapeRegex(topic.trim().slice(0, 100)) + '$', 'i')
@@ -148,10 +165,10 @@ router.get('/:id/import-ready', async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(404).json({ success: false, error: 'Not found' })
     }
-    const q = await QuestionBank.findOne({ _id: id, owner: req.user._id, isArchived: false })
+    const q = await QuestionBank.findOne({ _id: id, teacherId: req.user._id, isArchived: false })
     if (!q) return res.status(404).json({ success: false, error: 'Not found' })
     const obj = q.toObject()
-    const { _id, owner, sourceRoom, isArchived, createdAt, updatedAt, __v, ...rest } = obj
+    const { _id, teacherId, isArchived, createdAt, updatedAt, __v, ...rest } = obj
     res.json({ success: true, question: { ...rest, sourceBankId: _id } })
   } catch (err) {
     console.error('[questionBank:import-ready]', err)
@@ -165,7 +182,7 @@ router.get('/:id', async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(404).json({ success: false, error: 'Not found' })
     }
-    const q = await QuestionBank.findOne({ _id: id, owner: req.user._id })
+    const q = await QuestionBank.findOne({ _id: id, teacherId: req.user._id })
     if (!q) return res.status(404).json({ success: false, error: 'Not found' })
     res.json({ success: true, question: q })
   } catch (err) {
@@ -180,7 +197,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Not found' })
     }
     const q = await QuestionBank.findOneAndUpdate(
-      { _id: id, owner: req.user._id, isArchived: false },
+      { _id: id, teacherId: req.user._id, isArchived: false },
       { isArchived: true },
       { new: true }
     )
@@ -195,7 +212,7 @@ router.delete('/:id', async (req, res) => {
 router.get('/meta/topics', async (req, res) => {
   try {
     const topics = await QuestionBank.aggregate([
-      { $match: { owner: req.user._id, isArchived: false, topic: { $ne: '' } } },
+      { $match: { teacherId: req.user._id, isArchived: false, topic: { $ne: '' } } },
       { $group: { _id: '$topic', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 200 }
@@ -204,6 +221,89 @@ router.get('/meta/topics', async (req, res) => {
   } catch (err) {
     console.error('[questionBank:topics]', err)
     res.status(500).json({ success: false, error: 'Failed to load topics' })
+  }
+})
+
+router.get('/export', async (req, res) => {
+  try {
+    const { format = 'json' } = req.query
+    const query = { teacherId: req.user._id, isArchived: false }
+    const items = await QuestionBank.find(query).sort({ createdAt: -1 }).lean()
+    
+    if (format === 'csv') {
+      const csvLines = [
+        ['ID', 'Type', 'Question', 'Topic', 'Difficulty', 'Origin', 'AI Provider', 'Edited', 'Times Used', 'Avg Correct Rate'].join(',')
+      ]
+      for (const item of items) {
+        const timesUsed = item.usageHistory?.length || 0
+        const avgCorrectRate = timesUsed > 0 
+          ? item.usageHistory.reduce((acc, curr) => acc + (curr.correctRate || 0), 0) / timesUsed
+          : 0
+        
+        csvLines.push([
+          item._id.toString(),
+          item.type,
+          `"${(item.questionText || '').replace(/"/g, '""')}"`,
+          `"${item.topic || ''}"`,
+          item.difficulty || '',
+          item.provenance?.origin || '',
+          item.provenance?.aiProvider || '',
+          item.provenance?.editedBeforeApproval ? 'Yes' : 'No',
+          timesUsed,
+          avgCorrectRate.toFixed(2)
+        ].join(','))
+      }
+      res.setHeader('Content-Type', 'text/csv')
+      res.setHeader('Content-Disposition', 'attachment; filename="question_bank.csv"')
+      return res.send(csvLines.join('\n'))
+    }
+    
+    // Default JSON
+    res.json({ success: true, items })
+  } catch (err) {
+    console.error('[questionBank:export]', err)
+    res.status(500).json({ success: false, error: 'Failed to export questions' })
+  }
+})
+
+router.post('/:id/reuse', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { sessionId } = req.body
+    
+    if (!sessionId) {
+      return res.status(400).json({ success: false, error: 'sessionId is required' })
+    }
+    
+    const bankEntry = await QuestionBank.findOne({ _id: id, teacherId: req.user._id, isArchived: false })
+    if (!bankEntry) {
+      return res.status(404).json({ success: false, error: 'Question not found in bank' })
+    }
+    
+    const room = await Room.findOne({ _id: sessionId, createdBy: req.user._id })
+    if (!room) {
+      return res.status(403).json({ success: false, error: 'Not authorized for this session' })
+    }
+    
+    const Question = (await import('../models/Question.js')).default
+    
+    const newQuestion = new Question({
+      roomId: sessionId,
+      type: bankEntry.type === 'open-ended' ? 'MCQ' : bankEntry.type, // Fallback if open-ended isn't supported in Session
+      question: bankEntry.questionText,
+      options: bankEntry.options,
+      explanation: bankEntry.explanation,
+      status: 'approved',
+      sourceBankId: bankEntry._id,
+      createdBy: req.user._id
+    })
+    
+    await newQuestion.save()
+    
+    res.json({ success: true, question: newQuestion })
+  } catch (err) {
+    console.error('[questionBank:reuse]', err)
+    res.status(500).json({ success: false, error: 'Failed to reuse question' })
   }
 })
 

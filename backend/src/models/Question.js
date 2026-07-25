@@ -44,6 +44,10 @@ const questionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  sourceBankId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'QuestionBank'
+  },
   createdAt: {
     type: Date,
     default: Date.now

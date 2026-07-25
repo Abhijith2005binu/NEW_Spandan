@@ -96,6 +96,36 @@ router.post('/', authorize('teacher'), async (req, res) => {
 
     await newQuestion.save()
 
+    if (status === 'approved') {
+      // Auto-capture into QuestionBank
+      import('../models/QuestionBank.js')
+        .then(({ default: QuestionBank }) => {
+          const { provenance, explanation } = req.body
+          const bankEntry = new QuestionBank({
+            teacherId: req.user._id,
+            type: type,
+            questionText: question,
+            options: options.map(o => ({ text: typeof o === 'string' ? o : o.text, isCorrect: o.isCorrect || false })),
+            explanation: explanation || '',
+            topic: provenance?.topic || '',
+            difficulty: provenance?.difficulty || 'medium',
+            provenance: {
+              origin: provenance?.origin || 'manual',
+              sourceSessionId: roomId,
+              sourceTranscriptSnippet: provenance?.sourceTranscriptSnippet || '',
+              aiProvider: provenance?.aiProvider || '',
+              promptTemplateId: provenance?.promptTemplateId || null,
+              promptVersion: provenance?.promptVersion || null,
+              generatedAt: provenance?.generatedAt || new Date(),
+              approvedAt: new Date(),
+              editedBeforeApproval: !!provenance?.editedBeforeApproval
+            }
+          })
+          return bankEntry.save()
+        })
+        .catch(err => console.error('[Auto-Capture Error] Failed to save to QuestionBank:', err))
+    }
+
     res.status(201).json({
       success: true,
       question: newQuestion

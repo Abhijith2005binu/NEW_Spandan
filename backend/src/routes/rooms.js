@@ -141,6 +141,49 @@ router.put('/:id', authenticate, authorize('teacher'), async (req, res) => {
     if (req.body.isActive === false && updatedRoom.endedAt) {
       const io = req.app.get('io')
       io.to(room.code).emit('room:ended', { roomId: room._id, endedAt: updatedRoom.endedAt })
+
+      // Auto-capture usage history for bank questions
+      import('../models/Question.js')
+        .then(({ default: Question }) => Question.find({ roomId: room._id, sourceBankId: { $exists: true, $ne: null } }))
+        .then(async (bankQuestions) => {
+          if (!bankQuestions || bankQuestions.length === 0) return
+          const Response = (await import('../models/Response.js')).default
+          const QuestionBank = (await import('../models/QuestionBank.js')).default
+          
+          for (const q of bankQuestions) {
+            const stats = await Response.aggregate([
+              { $match: { questionId: q._id } },
+              { $group: {
+                  _id: null,
+                  total: { $sum: 1 },
+                  correctCount: { $sum: { $cond: ['$isCorrect', 1, 0] } },
+                  totalTime: { $sum: '$responseTime' }
+                }
+              }
+            ])
+            
+            if (stats && stats.length > 0) {
+              const { total, correctCount, totalTime } = stats[0]
+              const correctRate = total > 0 ? correctCount / total : 0
+              const avgResponseTime = total > 0 ? totalTime / total : 0
+              
+              await QuestionBank.updateOne(
+                { _id: q.sourceBankId },
+                {
+                  $push: {
+                    usageHistory: {
+                      sessionId: room._id,
+                      usedAt: new Date(),
+                      correctRate,
+                      avgResponseTime
+                    }
+                  }
+                }
+              )
+            }
+          }
+        })
+        .catch(err => console.error('[Usage Tracking Error]', err))
     }
     
     res.json({ message: 'Room updated successfully', room: updatedRoom })
