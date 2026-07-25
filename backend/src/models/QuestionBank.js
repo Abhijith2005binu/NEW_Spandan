@@ -6,7 +6,7 @@ const bankOptionSchema = new mongoose.Schema({
 }, { _id: false })
 
 const questionBankSchema = new mongoose.Schema({
-  owner: {
+  teacherId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
@@ -14,10 +14,10 @@ const questionBankSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['MCQ', 'TF', 'MSQ'],
+    enum: ['MCQ', 'TF', 'MSQ', 'open-ended'],
     required: true
   },
-  question: {
+  questionText: {
     type: String,
     required: true
   },
@@ -32,30 +32,43 @@ const questionBankSchema = new mongoose.Schema({
   },
   topic: {
     type: String,
-    default: ''
+    default: '',
+    index: true
   },
   difficulty: {
     type: String,
     enum: ['easy', 'medium', 'hard'],
     default: 'medium'
   },
+  provenance: {
+    origin: { type: String, enum: ['ai-generated', 'manual', 'imported'], required: true },
+    sourceSessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
+    sourceTranscriptSnippet: String,
+    aiProvider: String,
+    promptTemplateId: { type: mongoose.Schema.Types.ObjectId, ref: 'PromptTemplate' },
+    promptVersion: Number,
+    generatedAt: Date,
+    approvedAt: Date,
+    editedBeforeApproval: { type: Boolean, default: false }
+  },
+  usageHistory: [{
+    sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
+    usedAt: Date,
+    correctRate: Number,
+    avgResponseTime: Number
+  }],
   tags: [{
     type: String,
     lowercase: true,
     trim: true
   }],
-  sourceRoom: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Room',
-    default: null
-  },
   isArchived: {
     type: Boolean,
     default: false
   }
 }, { timestamps: true })
 
-questionBankSchema.index({ owner: 1, isArchived: 1, createdAt: -1 })
-questionBankSchema.index({ owner: 1, topic: 1 })
+questionBankSchema.index({ teacherId: 1, isArchived: 1, createdAt: -1 })
+questionBankSchema.index({ teacherId: 1, topic: 1 })
 
 export default mongoose.model('QuestionBank', questionBankSchema)
