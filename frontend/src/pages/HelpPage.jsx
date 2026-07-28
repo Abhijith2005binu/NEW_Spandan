@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import useAuthStore from '../stores/authStore'
 import useIsMobile from '../hooks/useIsMobile'
 import Sidebar from '../components/Sidebar'
@@ -128,6 +128,11 @@ export default function HelpPage() {
   const role = user?.role || 'student'
   const sections = role === 'teacher' ? TEACHER_SECTIONS : STUDENT_SECTIONS
 
+  // Collapsible sections — accordion: at most ONE open at a time, all collapsed by default.
+  // Opening a section closes whichever was open; clicking the open one closes it.
+  const [openIdx, setOpenIdx] = useState(null)
+  const toggle = (i) => setOpenIdx((prev) => (prev === i ? null : i))
+
   return (
     <div style={{
       display: 'flex', minHeight: '100vh', maxWidth: '100%',
@@ -171,35 +176,52 @@ export default function HelpPage() {
               join with a code, and everyone answers questions in real time. Here is how it works.
             </p>
 
-            {sections.map((s, idx) => (
-              <section key={s.title} style={{
-                background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-                borderRadius: '14px', padding: isMobile ? '16px' : '20px 22px', marginBottom: '16px',
-                boxShadow: 'var(--card-shadow)'
-              }}>
-                <h2 style={{
-                  margin: '0 0 12px', fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)',
-                  display: 'flex', alignItems: 'center', gap: '10px'
+            {sections.map((s, idx) => {
+              const isOpen = openIdx === idx
+              return (
+                <section key={s.title} style={{
+                  background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                  borderRadius: '14px', padding: isMobile ? '16px' : '20px 22px', marginBottom: '16px',
+                  boxShadow: 'var(--card-shadow)'
                 }}>
-                  <span style={{ fontSize: '20px' }}>{s.icon}</span>
-                  <span>{idx + 1}. {s.title}</span>
-                </h2>
-                {/* Tailwind's Preflight base resets `list-style: none`, so set the marker type
-                    explicitly (inline overrides the reset) to show numbers / bullets. */}
-                {React.createElement(
-                  s.ordered ? 'ol' : 'ul',
-                  { style: {
-                    margin: 0, paddingLeft: '24px', color: 'var(--text-secondary)',
-                    fontSize: '14px', lineHeight: 1.65,
-                    listStyleType: s.ordered ? 'decimal' : 'disc',
-                    listStylePosition: 'outside'
-                  } },
-                  s.body.map((line, i) => (
-                    <li key={i} style={{ display: 'list-item', marginBottom: i < s.body.length - 1 ? '8px' : 0 }}>{line}</li>
-                  ))
-                )}
-              </section>
-            ))}
+                  {/* Clickable heading toggles the section open/closed. */}
+                  <h2 style={{ margin: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => toggle(idx)}
+                      aria-expanded={isOpen}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', gap: '10px',
+                        background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                        fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)',
+                        textAlign: 'left', fontFamily: 'inherit'
+                      }}
+                    >
+                      <span style={{ fontSize: '20px' }}>{s.icon}</span>
+                      <span style={{ flex: 1 }}>{idx + 1}. {s.title}</span>
+                      <span aria-hidden="true" style={{
+                        fontSize: '13px', color: 'var(--text-secondary)', flexShrink: 0,
+                        transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.18s ease'
+                      }}>▶</span>
+                    </button>
+                  </h2>
+                  {/* Tailwind's Preflight base resets `list-style: none`, so set the marker type
+                      explicitly (inline overrides the reset) to show numbers / bullets. */}
+                  {isOpen && React.createElement(
+                    s.ordered ? 'ol' : 'ul',
+                    { style: {
+                      margin: '12px 0 0', paddingLeft: '24px', color: 'var(--text-secondary)',
+                      fontSize: '14px', lineHeight: 1.65,
+                      listStyleType: s.ordered ? 'decimal' : 'disc',
+                      listStylePosition: 'outside'
+                    } },
+                    s.body.map((line, i) => (
+                      <li key={i} style={{ display: 'list-item', marginBottom: i < s.body.length - 1 ? '8px' : 0 }}>{line}</li>
+                    ))
+                  )}
+                </section>
+              )
+            })}
 
             <p style={{ margin: '18px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
               Need more help? Contact your Spandan administrator.
