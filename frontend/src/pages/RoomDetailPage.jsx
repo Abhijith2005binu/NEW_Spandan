@@ -1467,7 +1467,7 @@ function RoomDetailPage() {
           </div>
 
           {/* Microphone and Transcription Row - 30/70 Split */}
-          <div style={{ display: 'flex', gap: '20px', height: isMobile ? 'auto' : '420px', marginBottom: '20px', flexWrap: 'wrap', overflowX: 'hidden' }}>
+          <div style={{ display: 'flex', gap: '20px', height: isMobile ? 'auto' : '470px', marginBottom: '20px', flexWrap: 'wrap', overflowX: 'hidden' }}>
             {/* Microphone / Video Card */}
             <div style={{
               flex: isMobile ? '1 1 100%' : (isVideoMode ? '1 1 calc(60% - 10px)' : '1 1 calc(30% - 10px)'),
@@ -1794,6 +1794,9 @@ function RoomDetailPage() {
                 color: transcript ? 'var(--text-primary)' : 'var(--text-secondary)',
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
+                // Cap the height so a long transcript scrolls INSIDE this box instead of growing the
+                // card and forcing the whole page to scroll.
+                maxHeight: isMobile ? '220px' : '470px',
                 overflowY: 'auto'
               }}>
                 {transcript ? transcript : (
