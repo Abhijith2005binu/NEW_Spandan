@@ -222,7 +222,7 @@ function generateFromMix(questionTypeMix, numQuestions) {
 }
 
 // Build prompt for question generation
-function buildQuestionPrompt(transcript, questionTypes, difficulty) {
+export function buildQuestionPrompt(transcript, questionTypes, difficulty) {
   const typeInstructions = questionTypes.map((type, index) => {
     switch (type) {
       case 'MCQ':
@@ -264,7 +264,7 @@ HOW TO WRITE GOOD QUESTIONS:
 
 WORDING:
 - Write each question so it stands on its own as a direct subject-knowledge question.
-- Do NOT point at the material with lazy stems. Never use the words "source material", "source", "transcript", "transcription", "passage", "text", "excerpt", "recording", "audio", or "context", and never open with "According to the source/passage/text", "As per the speaker", "the speaker said", or "the speaker mentioned".
+- Do NOT point at the material with lazy stems. Never use the words "source material", "source", "transcript", "transcription", "passage", "text", "excerpt", "recording", "audio", "context", "speaker", "narrator", "presenter", or "author", and never refer to whoever produced the content as "the speaker" in ANY form (e.g. "the speaker said/mentioned/states/explains/argues/concludes", "as per the speaker", "the speaker's point"), nor open with "According to the source/passage/text".
 - ONLY when a question is genuinely about HOW an idea was framed or illustrated may you refer to "the session", "the discussion", or "the instructor" — never "the speaker" or "the source material".
   BAD:  "According to the source material, what caused the failure?"
   GOOD: "A single low-cost component caused a total system failure — what does this best demonstrate about complex engineered systems?"
@@ -318,7 +318,7 @@ IMPORTANT:
 }
 
 // Parse questions from AI response
-function parseQuestions(responseText, expectedTypes) {
+export function parseQuestions(responseText, expectedTypes) {
   try {
     let jsonStr = responseText
     
@@ -358,7 +358,7 @@ function parseQuestions(responseText, expectedTypes) {
 }
 
 // Parse options ensuring correct structure
-function parseOptions(options, type) {
+export function parseOptions(options, type) {
   if (type === 'TF') {
     // For True/False, use AI-provided options if valid
     if (Array.isArray(options) && options.length === 2) {
