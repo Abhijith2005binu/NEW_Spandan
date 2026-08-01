@@ -625,7 +625,19 @@ router.get('/counts/:roomId', async (req, res) => {
   try {
     const mongoose = (await import('mongoose')).default
     const Response = (await import('../models/Response.js')).default
+    const Room = (await import('../models/Room.js')).default
+    const RoomMember = (await import('../models/RoomMember.js')).default
     const { roomId } = req.params
+
+    // Authorization: only the room owner or a member may read per-question counts. Without this,
+    // any authenticated user could read another room's answer counts by supplying its id.
+    const room = await Room.findById(roomId)
+    if (!room) return res.status(404).json({ error: 'Room not found' })
+    const isOwner = room.teacher.toString() === req.user._id.toString()
+    const isMember = isOwner ? true : !!(await RoomMember.findOne({ roomId, studentId: req.user._id }))
+    if (!isOwner && !isMember) {
+      return res.status(403).json({ error: 'Not authorized to view this room' })
+    }
 
     const toObjectId = (id) => {
       if (!id) return null
