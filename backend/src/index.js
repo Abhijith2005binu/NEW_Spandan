@@ -557,11 +557,12 @@ io.on('connection', (socket) => {
         )
       }
 
-      // Authorized → now join the socket room and announce.
+      // Authorized → now join the socket room and announce. The room-wide event carries only the
+      // aggregate count, never the joiner's userId (which would let any peer harvest participant IDs).
       socket.join(roomCode)
       const participantCount = await RoomMember.countDocuments({ roomId: room._id })
 
-      io.to(roomCode).emit('room:joined', { roomCode, userId, participants: participantCount })
+      io.to(roomCode).emit('room:joined', { roomCode, participants: participantCount })
 
       // Seed the joining socket with the teacher's last known video position (video mode) so a
       // reload/late-join can immediately seek forward up to where the class is.
