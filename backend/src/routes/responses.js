@@ -719,7 +719,7 @@ router.get('/leaderboard/:roomId', async (req, res) => {
       // request, and this endpoint is polled heavily during live sessions.
       const studentIds = leaderboardData.map(entry => entry._id)
       const users = await User.find({ _id: { $in: studentIds } })
-        .select('name email')
+        .select('name')
         .lean()
       const userById = new Map(users.map(u => [u._id.toString(), u]))
 
@@ -728,7 +728,7 @@ router.get('/leaderboard/:roomId', async (req, res) => {
         return {
           rank: index + 1,
           studentId: entry._id.toHexString(),
-          studentName: user?.name || user?.email || 'Unknown Student',
+          studentName: user?.name || 'Unknown Student',
           totalPoints: entry.totalPoints,
           correctCount: entry.correctCount,
           totalAnswered: entry.totalAnswered
