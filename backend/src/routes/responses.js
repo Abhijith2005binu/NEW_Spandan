@@ -2,6 +2,7 @@ import express from 'express'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { isBatchEnabled, bufferResponse } from '../services/responseBuffer.js'
 import * as resultsSnapshot from '../services/resultsSnapshot.js'
+import { checkRoomOwnership } from '../utils/roomOwnership.js'
 import { debug } from '../utils/debug.js'
 const router = express.Router()
 
@@ -626,17 +627,14 @@ router.get('/counts/:roomId', async (req, res) => {
     const mongoose = (await import('mongoose')).default
     const Response = (await import('../models/Response.js')).default
     const Room = (await import('../models/Room.js')).default
-    const RoomMember = (await import('../models/RoomMember.js')).default
     const { roomId } = req.params
 
-    // Authorization: only the room owner or a member may read per-question counts. Without this,
-    // any authenticated user could read another room's answer counts by supplying its id.
+    // Authorization: only the room's OWNING teacher may read per-question counts. This endpoint is
+    // used only by the teacher's room view; students receive live counts over the socket instead.
     const room = await Room.findById(roomId)
-    if (!room) return res.status(404).json({ error: 'Room not found' })
-    const isOwner = room.teacher.toString() === req.user._id.toString()
-    const isMember = isOwner ? true : !!(await RoomMember.findOne({ roomId, studentId: req.user._id }))
-    if (!isOwner && !isMember) {
-      return res.status(403).json({ error: 'Not authorized to view this room' })
+    const ownership = checkRoomOwnership(room, req.user._id)
+    if (!ownership.ok) {
+      return res.status(ownership.status).json({ error: ownership.error })
     }
 
     const toObjectId = (id) => {
