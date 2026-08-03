@@ -40,6 +40,17 @@ router.post('/register/verify', validate(verifyRegistrationSchema), async (req, 
     const { name, email, password, role, otp } = req.validatedBody
     await verifyRegistrationOtp(email, otp) // throws on invalid/expired/too-many-attempts
     const user = await register(name, email, password, role) // creates the (now email-verified) account
+
+    // Teacher accounts are NOT auto-logged-in: they require admin approval first. We issue
+    // no token and return a pendingApproval flag so the client sends the registrant back to
+    // the login screen with an "admin approval pending" message. Students log in immediately.
+    if (user.role === 'teacher') {
+      return res.status(202).json({
+        pendingApproval: true,
+        message: 'Registration successful. Your teacher account is pending admin approval. You will be able to sign in once an administrator approves it.'
+      })
+    }
+
     const token = generateToken(user._id)
     res.status(201).json({
       message: 'Registration successful',
@@ -60,6 +71,16 @@ router.post('/login', validate(loginSchema), async (req, res) => {
   try {
     const { email, password } = req.validatedBody
     const user = await login(email, password)
+
+    // A teacher who is not yet approved (or was rejected) is refused a token and bounced back
+    // to the login screen with a clear message, rather than landing in the teacher dashboard.
+    if (user.role === 'teacher' && user.teacherApprovalStatus !== 'approved') {
+      const message = user.teacherApprovalStatus === 'rejected'
+        ? 'Your teacher account request was not approved. Please contact the administrator.'
+        : 'Your teacher account is awaiting admin approval. Please try signing in again once it is approved.'
+      return res.status(403).json({ error: message, code: 'TEACHER_NOT_APPROVED', status: user.teacherApprovalStatus })
+    }
+
     const token = generateToken(user._id)
 
     res.json({
