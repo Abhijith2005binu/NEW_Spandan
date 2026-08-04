@@ -31,12 +31,19 @@ import * as resultsSnapshot from '../services/resultsSnapshot.js'
 
 const router = express.Router()
 
-// Simple constant-time-ish key check.
+// Constant-time key check. Fail CLOSED: if RESEARCH_API_KEY is not configured the export lane
+// is disabled entirely (503) — we never fall back to a guessable default, so a missing/blank env
+// var can never leave the endpoint open. Comparison is constant-time via timingSafeEqual; the
+// length guard is required because timingSafeEqual throws on unequal-length buffers.
 function requireResearchKey(req, res, next) {
-  const expected = process.env.RESEARCH_API_KEY || 'local-dev-research-key'
-  const got = req.header('X-Research-Key') || ''
-  if (!expected || got.length !== expected.length ||
-      !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected))) {
+  const expected = process.env.RESEARCH_API_KEY || ''
+  if (!expected) {
+    console.error('[research] RESEARCH_API_KEY is not set — refusing all export requests (fail closed)')
+    return res.status(503).json({ error: 'Research export is not configured' })
+  }
+  const gotBuf = Buffer.from(req.header('X-Research-Key') || '')
+  const expBuf = Buffer.from(expected)
+  if (gotBuf.length !== expBuf.length || !crypto.timingSafeEqual(gotBuf, expBuf)) {
     return res.status(401).json({ error: 'Invalid or missing X-Research-Key' })
   }
   next()
