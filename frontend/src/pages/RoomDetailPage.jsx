@@ -835,6 +835,17 @@ function RoomDetailPage() {
   // the current broadcast instead of falling behind by the poll + answer time. We query the player
   // DIRECTLY (not the React isLiveStream state) so this fires reliably even if live-detection state
   // hasn't settled or was captured stale by an older closure.
+  // Tell the server a question pop-up just closed (a segment's questions are answered) so it folds
+  // that segment into the ranked leaderboard (per-segment). A REST call (owner-authed), fired in ALL
+  // modes — unlike video:resume, which is video-mode only — so the board updates for normal sessions.
+  const emitSegmentDone = () => {
+    if (!room?._id || !token) return
+    fetch(`${API_URL}/responses/leaderboard/${room._id}/segment-done`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).catch(() => {})
+  }
+
   const resumeTeacherVideo = () => {
     // Tell students the popup window is over so they resume + jump to the live edge (fire even if the
     // teacher's own player ref isn't ready).
@@ -1102,6 +1113,7 @@ function RoomDetailPage() {
   const handleTextQuestionClose = () => {
     setShowTextQuestionPopup(false)
     setPendingTextQuestions([])
+    emitSegmentDone() // fold this Paste & Generate batch into the leaderboard
   }
 
   const handleCreateQuestion = async (questionData) => {
@@ -2005,6 +2017,7 @@ function RoomDetailPage() {
             // Resume recording for next segment
             startRecording({ resetSegment: false })
             if (isVideoMode) resumeTeacherVideo() // resume the video (live: jump to live edge) after review
+            emitSegmentDone() // fold this segment into the leaderboard (all modes)
 
             // Timer will auto-start via the useEffect since isPendingReview is now false
           }}
@@ -2021,6 +2034,7 @@ function RoomDetailPage() {
             setSegmentTimeLeft(roomSettings.segmentTime * 60)
             startRecording({ resetSegment: false })
             if (isVideoMode) resumeTeacherVideo() // resume the video (live: jump to live edge) after review
+            emitSegmentDone() // fold this segment into the leaderboard (all modes)
           }}
         />
       )}
@@ -2029,7 +2043,7 @@ function RoomDetailPage() {
       {showCreateQuestion && (
         <CreateQuestionOverlay
           isOpen={showCreateQuestion}
-          onClose={() => setShowCreateQuestion(false)}
+          onClose={() => { setShowCreateQuestion(false); emitSegmentDone() }}
           onLaunch={handleCreateQuestion}
         />
       )}

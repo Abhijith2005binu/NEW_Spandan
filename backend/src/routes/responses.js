@@ -2,6 +2,7 @@ import express from 'express'
 import { authenticate, authorize } from '../middleware/auth.js'
 import { isBatchEnabled, bufferResponse } from '../services/responseBuffer.js'
 import * as resultsSnapshot from '../services/resultsSnapshot.js'
+import { computeRankedIncremental } from '../services/leaderboardCache.js'
 import { checkRoomOwnership } from '../utils/roomOwnership.js'
 import { debug } from '../utils/debug.js'
 const router = express.Router()
@@ -233,14 +234,13 @@ router.post('/', authorize('student'), async (req, res) => {
       }
     }
 
-    // Live answer-counts update immediately (throttled) so the teacher's "X/total answered"
-    // badge stays current; the ranked leaderboard is DEFERRED to a quiet-debounce (fires once
-    // the answer burst has drained) so its expensive recompute never competes with the burst.
-    // Return this student's current rank ("rank on submit") from the last settled board — it may
-    // lag during a burst (Option A), but the student still gets their points immediately below.
+    // Live answer-counts update immediately (throttled) so the teacher's "X/total answered" badge
+    // stays current. The ranked leaderboard is NOT triggered from here: it is recomputed once per
+    // segment, when the teacher's question pop-up closes (the 'leaderboard:segment-done' socket
+    // event, see index.js). Return this student's current rank ("rank on submit") from the board as
+    // of the last segment fold (Option A) — the student still gets their points immediately below.
     const live = req.app.get('liveUpdates')
     live?.scheduleCounts(roomId)
-    live?.scheduleLeaderboard(roomId)
     const rankInfo = (live ? await live.getRank(roomId, studentId) : null) || {}
 
     // Withhold the answerer's OWN correctness (isCorrect + points) from the immediate response while
@@ -677,23 +677,33 @@ router.get('/counts/:roomId', async (req, res) => {
   }
 })
 
+// POST /api/responses/leaderboard/:roomId/segment-done — the teacher's frontend calls this when a
+// question pop-up closes (that segment's questions are all answered). It schedules the coalesced
+// per-segment leaderboard fold (see index.js scheduleSegmentFold): after LEADERBOARD_SEGMENT_DELAY_MS
+// the server folds that segment into the shared running total and broadcasts once. Owner-only.
+router.post('/leaderboard/:roomId/segment-done', async (req, res) => {
+  try {
+    const Room = (await import('../models/Room.js')).default
+    const { roomId } = req.params
+    const room = await Room.findById(roomId)
+    const ownership = checkRoomOwnership(room, req.user._id)
+    if (!ownership.ok) return res.status(ownership.status).json({ error: ownership.error })
+    req.app.get('liveUpdates')?.scheduleSegmentFold(roomId)
+    res.status(202).json({ success: true })
+  } catch (error) {
+    console.error('segment-done error:', error)
+    res.status(500).json({ error: 'Failed to schedule leaderboard update' })
+  }
+})
+
 // GET /api/responses/leaderboard/:roomId - Get ranked leaderboard for a room
 // Authorization: teacher (owner's room) sees full, students (joined room) see top 3 only
 router.get('/leaderboard/:roomId', async (req, res) => {
   try {
-    const mongoose = (await import('mongoose')).default
-    const Response = (await import('../models/Response.js')).default
-    const User = (await import('../models/User.js')).default
     const Room = (await import('../models/Room.js')).default
     const RoomMember = (await import('../models/RoomMember.js')).default
     const { roomId } = req.params
     const currentUser = req.user
-
-    const toObjectId = (id) => {
-      if (!id) return null
-      if (typeof id === 'object' && id._bsontype === 'ObjectId') return id
-      return new mongoose.Types.ObjectId(id)
-    }
 
     // Check if teacher owns the room
     const room = await Room.findById(roomId)
@@ -715,38 +725,11 @@ router.get('/leaderboard/:roomId', async (req, res) => {
     let leaderboard = await resultsSnapshot.getLeaderboard(roomId, { ended })
 
     if (!leaderboard) {
-      // Aggregate points per student
-      const leaderboardData = await Response.aggregate([
-        { $match: { roomId: toObjectId(roomId) } },
-        { $group: {
-          _id: '$studentId',
-          totalPoints: { $sum: '$points' },
-          correctCount: { $sum: { $cond: ['$isCorrect', 1, 0] } },
-          totalAnswered: { $sum: 1 }
-        }},
-        { $sort: { totalPoints: -1 } }
-      ])
-
-      // Resolve student names in a SINGLE batched query instead of one findById per
-      // participant. The old N+1 loop issued up to 1000 user lookups per leaderboard
-      // request, and this endpoint is polled heavily during live sessions.
-      const studentIds = leaderboardData.map(entry => entry._id)
-      const users = await User.find({ _id: { $in: studentIds } })
-        .select('name')
-        .lean()
-      const userById = new Map(users.map(u => [u._id.toString(), u]))
-
-      leaderboard = leaderboardData.map((entry, index) => {
-        const user = userById.get(entry._id.toString())
-        return {
-          rank: index + 1,
-          studentId: entry._id.toHexString(),
-          studentName: user?.name || 'Unknown Student',
-          totalPoints: entry.totalPoints,
-          correctCount: entry.correctCount,
-          totalAnswered: entry.totalAnswered
-        }
-      })
+      // Live room: serve the CACHED per-segment board (read-only, NO fold), so the board is stable
+      // within a segment and changes only when a segment fold runs. The cache advances via the
+      // per-segment trigger POST /leaderboard/:roomId/segment-done — not on this read. (Ended rooms
+      // are served from the snapshot above; room end does a full recompute.)
+      leaderboard = (await computeRankedIncremental(roomId, { fold: false })).full
     }
 
     // Students: top 10 + their rank (with ellipsis). Teachers: full leaderboard.
