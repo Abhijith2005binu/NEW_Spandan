@@ -1,10 +1,36 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, Component } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '../stores/authStore'
 import useRoomStore from '../stores/roomStore'
 import Sidebar from '../components/Sidebar'
 import ThemeToggle from '../components/ThemeToggle'
 import ProfileDropdown from '../components/ProfileDropdown'
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo });
+    console.error("ManageRoomPage Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', color: 'red', background: '#fef2f2', minHeight: '100vh' }}>
+          <h2>Something went wrong in ManageRoomPage.</h2>
+          <pre>{this.state.error && this.state.error.toString()}</pre>
+          <pre style={{ fontSize: '12px' }}>{this.state.errorInfo?.componentStack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function ManageRoomPage() {
   const navigate = useNavigate()
@@ -143,4 +169,10 @@ function ManageRoomPage() {
   )
 }
 
-export default ManageRoomPage
+export default function ManageRoomPageWrapper() {
+  return (
+    <ErrorBoundary>
+      <ManageRoomPage />
+    </ErrorBoundary>
+  )
+}
