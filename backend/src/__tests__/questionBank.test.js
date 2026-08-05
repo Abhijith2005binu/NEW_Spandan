@@ -106,7 +106,7 @@ describe('QuestionBank API', () => {
     expect(res.status).toBe(201)
     expect(res.body.success).toBe(true)
     expect(res.body.question._id).toBeDefined()
-    expect(res.body.question.question).toBe('What is 2+2?')
+    expect(res.body.question.questionText).toBe('What is 2+2?')
     expect(res.body.question.topic).toBe('Math')
     expect(res.body.question.tags).toContain('arithmetic')
   })
@@ -164,7 +164,7 @@ describe('QuestionBank API', () => {
     expect(res.status).toBe(200)
     expect(res.body.question._id).toBeUndefined() // stripped
     expect(res.body.question.owner).toBeUndefined()
-    expect(res.body.question.question).toBeDefined()
+    expect(res.body.question.questionText).toBeDefined()
     expect(res.body.question.sourceBankId).toBeDefined()
   })
 
