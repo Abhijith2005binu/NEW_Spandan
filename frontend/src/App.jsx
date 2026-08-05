@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, Component } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import useThemeStore from './stores/themeStore'
 import useAuthStore from './stores/authStore'
@@ -18,6 +18,32 @@ import RoomResultsPage from './pages/RoomResultsPage'
 import ProfilePage from './pages/ProfilePage'
 import QuestionBankPage from './pages/QuestionBankPage'
 import { API_URL } from './config.js'
+
+class GlobalErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo });
+    console.error("Global Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', color: 'red', background: '#fef2f2', minHeight: '100vh', zIndex: 9999, position: 'relative' }}>
+          <h2>Global Application Crash</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{this.state.error && this.state.error.toString()}</pre>
+          <pre style={{ fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{this.state.errorInfo?.componentStack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function App() {
   const { isDark } = useThemeStore()
@@ -133,82 +159,84 @@ function App() {
   }, [isDark])
 
   return (
-    <BrowserRouter basename="/spandan">
-      <Routes>
-        <Route path="/" element={<AuthPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/teacher" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <DashboardPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/teacher/create-room" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <CreateRoomPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/teacher/manage-room" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <ManageRoomPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/teacher/profile" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <ProfilePage />
-          </ProtectedRoute>
-        } />
-                <Route path="/teacher/room-history" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <RoomHistoryPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/teacher/question-bank" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <QuestionBankPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/teacher/room/:roomId" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <RoomDetailPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/teacher/room/:roomId/results" element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <RoomResultsPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/student" element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <StudentDashboard />
-          </ProtectedRoute>
-        } />
-        <Route path="/student/join-room" element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <JoinRoomPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/student/room-history" element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <RoomHistoryPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/student/profile" element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <ProfilePage />
-          </ProtectedRoute>
-        } />
-        <Route path="/student/room/:roomId/results" element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <RoomResultsPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/student/session/:roomCode" element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <StudentRoomPage />
-          </ProtectedRoute>
-        } />
-      </Routes>
-    </BrowserRouter>
+    <GlobalErrorBoundary>
+      <BrowserRouter basename="/spandan">
+        <Routes>
+          <Route path="/" element={<AuthPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/teacher" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <DashboardPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/teacher/create-room" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <CreateRoomPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/teacher/manage-room" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <ManageRoomPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/teacher/profile" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <ProfilePage />
+            </ProtectedRoute>
+          } />
+                  <Route path="/teacher/room-history" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <RoomHistoryPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/teacher/question-bank" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <QuestionBankPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/teacher/room/:roomId" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <RoomDetailPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/teacher/room/:roomId/results" element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <RoomResultsPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/student" element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <StudentDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/student/join-room" element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <JoinRoomPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/student/room-history" element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <RoomHistoryPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/student/profile" element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <ProfilePage />
+            </ProtectedRoute>
+          } />
+          <Route path="/student/room/:roomId/results" element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <RoomResultsPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/student/session/:roomCode" element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <StudentRoomPage />
+            </ProtectedRoute>
+          } />
+        </Routes>
+      </BrowserRouter>
+    </GlobalErrorBoundary>
   )
 }
 
