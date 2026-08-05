@@ -555,8 +555,8 @@ function StudentRoomPage() {
             </div>
           )}
 
-          {/* Live Question */}
-          {currentQuestion ? (
+          {/* Live Question — only mounted while a poll is live */}
+          {currentQuestion && (
             <div style={{
               background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
               borderRadius: 'var(--radius-lg)',
@@ -708,9 +708,12 @@ function StudentRoomPage() {
                 </button>
               )}
             </div>
-          ) : (
-            /* Waiting State - Show Passed Questions */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          )}
+
+          {/* Waiting State (Show Passed Questions) — persistent: display-toggled, NOT unmounted, so the
+              Leaderboard keeps its socket subscription and updates ONLY on the once-per-segment
+              leaderboard:updated push, instead of re-fetching on every poll's remount. */}
+          <div style={{ display: currentQuestion ? 'none' : 'flex', flexDirection: 'column', gap: '24px' }}>
               {/* Active question area placeholder — hidden in video mode (the player fills this space) */}
               {!isVideoMode && (
               <div style={{
@@ -958,7 +961,6 @@ function StudentRoomPage() {
                 </div>
               </div>
             </div>
-          )}
         </div>
       </div>
     </div>

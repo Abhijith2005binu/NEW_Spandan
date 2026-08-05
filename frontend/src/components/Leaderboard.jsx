@@ -112,7 +112,9 @@ const Leaderboard = ({ roomId, token, socket, userId, myRank }) => {
 
   const renderRank = (entry, index) => {
     const rank = entry.rank
-    const isCurrentUser = entry.isCurrentUser
+    // Identify "you" by id, not by a server-supplied flag (which is only set beyond-top-10 and is
+    // absent from socket pushes) — that flag drifted onto the wrong/adjacent row until a full refresh.
+    const isCurrentUser = String(entry.studentId) === String(userId)
 
     // Top-3 and the current-user row always render on a LIGHT gradient background in BOTH
     // themes (gold/silver/bronze/blue). var(--text-primary) flips to near-white in dark mode,
