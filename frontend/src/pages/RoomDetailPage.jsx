@@ -16,17 +16,29 @@ import Leaderboard from '../components/Leaderboard'
 import { saveTranscript } from '../services/transcriptService'
 import { transcribeAudio, getTranscriptionStatus, convertWebMToWav } from '../services/serverTranscriptionService'
 import { API_URL } from '../config.js'
+import { useTranscription } from '../hooks/useTranscription'
+import { useRoomTimers } from '../hooks/useRoomTimers'
+import { useQuestionGeneration } from '../hooks/useQuestionGeneration'
 
 function RoomDetailPage() {
+
+
+  const [room, setRoom] = useState(null)
+
+  const [roomSettings, setRoomSettings] = useState({
+    segmentTime: 2, questionsPerSegment: 2, difficulty: 'medium',
+    questionProvider: 'minimax', questionTypeMix: { MCQ: 0, TF: 100, MSQ: 0 },
+    timeToAnswer: 30, points: 100
+  })
   const { roomId } = useParams()
   const navigate = useNavigate()
   const { user, token } = useAuthStore()
   const { socket, isConnected, joinRoom, leaveRoom } = useSocketStore()
   const { getRoom, updateRoom, setAuthToken } = useRoomStore()
-  const { saveFromRoomQuestion, getStagedQueue, clearStagedQueue, isAlreadySaved } = useQuestionBankStore()
+  const { saveFromRoomQuestion, getStagedQueue, clearStagedQueue, isAlreadySaved, fetchSavedRoomQuestionIds } = useQuestionBankStore()
 
   // Track questions saved in this session to prevent duplicate bank entries
-  const [savedQuestionKeys] = useState(() => new Set())
+  // removed savedQuestionKeys
   const [savingIds, setSavingIds] = useState(() => new Set())
 
   const questionFingerprint = (q) =>
@@ -47,6 +59,55 @@ function RoomDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+
+
+  const handleDismissBankImport = useCallback(() => {
+    clearStagedQueue()
+    setPendingBankCount(0)
+  }, [clearStagedQueue])
+
+  // ONE-CLICK SAVE: turn a generated question into a bank entry.
+  // Guards against double-clicks, missing fields, and duplicate saves in one session.
+  const handleSaveToBank = useCallback(async (question) => {
+    if (!question || !question._id) {
+      showBankToast('Cannot save: question is missing an id', 'error')
+      return
+    }
+    const fp = questionFingerprint(question)
+    if (isAlreadySaved(question._id)) {
+      showBankToast('Already saved to bank', 'success')
+      return
+    }
+    if (savingIds.has(question._id)) return // already in flight
+    setSavingIds(prev => new Set(prev).add(question._id))
+    try {
+      const result = await saveFromRoomQuestion(
+        question,
+        room?._id,
+        {
+          topic: roomSettings?.topic || '',
+          difficulty: roomSettings?.difficulty || 'medium',
+          tags: []
+        }
+      )
+      if (result && result.ok) {
+        // sync handled by store
+        showBankToast('Saved to bank', 'success')
+      } else {
+        showBankToast('Save failed: ' + (result && result.error || 'unknown'), 'error')
+      }
+    } catch (e) {
+      showBankToast('Save failed: ' + (e.message || 'unknown'), 'error')
+    } finally {
+      setSavingIds(prev => {
+        const next = new Set(prev)
+        next.delete(question._id)
+        return next
+      })
+    }
+  }, [saveFromRoomQuestion, room, roomSettings, showBankToast, isAlreadySaved, savingIds])
+
+
   const handleAcceptBankImport = useCallback(() => {
     const staged = getStagedQueue()
     if (!staged.length || !room) return
@@ -65,54 +126,6 @@ function RoomDetailPage() {
     setPendingBankCount(0)
     showBankToast(`📥 Imported ${imported.length} question${imported.length !== 1 ? 's' : ''} from bank`)
   }, [getStagedQueue, clearStagedQueue, room, roomSettings, showBankToast])
-
-  const handleDismissBankImport = useCallback(() => {
-    clearStagedQueue()
-    setPendingBankCount(0)
-  }, [clearStagedQueue])
-
-  // ONE-CLICK SAVE: turn a generated question into a bank entry.
-  // Guards against double-clicks, missing fields, and duplicate saves in one session.
-  const handleSaveToBank = useCallback(async (question) => {
-    if (!question || !question._id) {
-      showBankToast('Cannot save: question is missing an id', 'error')
-      return
-    }
-    const fp = questionFingerprint(question)
-    if (savedQuestionKeys.has(fp) || isAlreadySaved(question._id)) {
-      showBankToast('Already saved to bank', 'success')
-      return
-    }
-    if (savingIds.has(question._id)) return // already in flight
-    setSavingIds(prev => new Set(prev).add(question._id))
-    try {
-      const result = await saveFromRoomQuestion(
-        question,
-        room?._id,
-        {
-          topic: roomSettings?.topic || '',
-          difficulty: roomSettings?.difficulty || 'medium',
-          tags: []
-        }
-      )
-      if (result && result.ok) {
-        savedQuestionKeys.add(fp)
-        showBankToast('Saved to bank', 'success')
-      } else {
-        showBankToast('Save failed: ' + (result && result.error || 'unknown'), 'error')
-      }
-    } catch (e) {
-      showBankToast('Save failed: ' + (e.message || 'unknown'), 'error')
-    } finally {
-      setSavingIds(prev => {
-        const next = new Set(prev)
-        next.delete(question._id)
-        return next
-      })
-    }
-  }, [saveFromRoomQuestion, room, roomSettings, showBankToast, savedQuestionKeys, isAlreadySaved, savingIds])
-
-  const [room, setRoom] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isRoomJoined, setIsRoomJoined] = useState(false)
   const [error, setError] = useState('')
@@ -121,72 +134,103 @@ function RoomDetailPage() {
   const settingsRef = useRef(null)
   const transcriptRef = useRef(null)
 
-  // Real-time transcription state
-  const [isRecording, setIsRecording] = useState(false)
-  const [transcript, setTranscript] = useState('')
-  const [isTranscribing, setIsTranscribing] = useState(false)
-  const [modelStatus, setModelStatus] = useState('Ready')
+  
 
-  // MediaRecorder refs for server-side Whisper transcription
-  const mediaRecorderRef = useRef(null)
-  const audioChunksRef = useRef([])
-  const streamRef = useRef(null)
-  const transcriptionIntervalRef = useRef(null)
-  const finalTranscriptRef = useRef('')
-  const accumulatedTranscriptRef = useRef('')
-  const segmentTranscriptRef = useRef('')
-  const recordingActiveRef = useRef(false)
-  const selectedMimeTypeRef = useRef('audio/webm')
-  const mediaRecorderStopPromiseRef = useRef(null)
-
-  // Transcription queue for ordered processing
-  const transcriptionQueueRef = useRef([])
-  const nextSequenceRef = useRef(0)
-  const pendingSequenceRef = useRef(0)
-  const isProcessingQueueRef = useRef(false)
-
-  // Segment tracking
   const [currentSegment, setCurrentSegment] = useState(0)
-  const [segmentTranscript, setSegmentTranscript] = useState('')
-  const [segmentTimeLeft, setSegmentTimeLeft] = useState(0)
-  const segmentTimerRef = useRef(null)
+  const [answerCounts, setAnswerCounts] = useState({}) 
+  
+  const {
+    isRecording, transcript, setTranscript, segmentTranscript, setSegmentTranscript,
+    segmentTranscriptRef, modelStatus, setModelStatus, startRecording, stopRecording
+  } = useTranscription(room, currentSegment)
 
-  // Question timer for teacher visibility
-  const [activeQuestion, setActiveQuestion] = useState(null)
-  const [questionTimeLeft, setQuestionTimeLeft] = useState(0)
-  const questionTimerRef = useRef(null)
+  const [isPendingReview, setIsPendingReview] = useState(false)
+  const [generateQEnabled, setGenerateQEnabled] = useState(true) 
+  
+  
 
 
-  // Question generation
-  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false)
-  const [pendingQuestions, setPendingQuestions] = useState([])
+  const handleSegmentComplete = async () => {
+    await stopRecording()
+    setIsPendingReview(true)
+    setGenerateQEnabled(false)
+    const textToUse = segmentTranscriptRef.current.trim() || transcript.trim()
+
+    if (!textToUse || textToUse.length < 50) {
+      window.alert('Transcription too short. Please speak more or trigger manually after starting next segment.')
+      setIsPendingReview(false)
+      setGenerateQEnabled(true)
+      startRecording({ resetSegment: false }, setCurrentSegment)
+      return
+    }
+
+    try {
+      await saveTranscript(room?._id, currentSegment, textToUse, roomSettings.segmentTime * 60)
+    } catch (err) {
+      console.error(err)
+      window.alert('Transcript could not be saved.')
+      setGenerateQEnabled(true)
+      return
+    }
+
+    try {
+      const questions = await generateQuestionsFromText(textToUse, currentSegment)
+      if (questions && questions.length > 0) {
+        setPendingQuestions(questions)
+        setShowQuestionPopup(true)
+        setIsPopupOpen(true)
+      }
+    } catch (error) {
+      try {
+        const questions = await generateQuestionsFromText(textToUse, currentSegment)
+        if (questions && questions.length > 0) {
+          setPendingQuestions(questions)
+          setShowQuestionPopup(true)
+          setIsPopupOpen(true)
+        }
+      } catch (retryError) {
+        window.alert('Failed to generate questions after retry. You can use the manual "Generate Q" button.')
+        setGenerateQEnabled(true)
+      }
+    }
+  }
+
+  const {
+    segmentTimeLeft, isSegmentPaused, startSegmentTimer, pauseSegmentTimer,
+    resumeSegmentTimer, clearSegmentTimer, activeQuestion, questionTimeLeft,
+    startQuestionTimer, clearQuestionTimer
+  } = useRoomTimers(roomSettings, handleSegmentComplete)
+
+  const {
+    isGeneratingQuestions, isGeneratingFromText, pendingQuestions, setPendingQuestions,
+    pendingTextQuestions, setPendingTextQuestions, generateQuestionsFromText,
+    handleTextToQuestionsGenerate: baseHandleTextToQuestionsGenerate
+  } = useQuestionGeneration(token, roomSettings, currentSegment)
+
+
+  const handleTextToQuestionsGenerate = async (text, mode) => {
+    setShowTextToQuestions(false)
+    setShowGeneratingPopup(true)
+    const result = await baseHandleTextToQuestionsGenerate(text, mode)
+    setShowGeneratingPopup(false)
+    if (result.success) {
+      setShowTextQuestionPopup(true)
+    } else {
+      window.alert(result.error)
+    }
+  }
+
   const [showQuestionPopup, setShowQuestionPopup] = useState(false)
   const [isPopupOpen, setIsPopupOpen] = useState(false)
   const [showCreateQuestion, setShowCreateQuestion] = useState(false)
   const [showTextToQuestions, setShowTextToQuestions] = useState(false)
-  const [isGeneratingFromText, setIsGeneratingFromText] = useState(false)
   const [showTextQuestionPopup, setShowTextQuestionPopup] = useState(false)
   const [showGeneratingPopup, setShowGeneratingPopup] = useState(false)
-  const [pendingTextQuestions, setPendingTextQuestions] = useState([])
   const [generatedQuestions, setGeneratedQuestions] = useState([])
-  // Segment pause/resume state
-  const [isSegmentPaused, setIsSegmentPaused] = useState(false)
-  const [segmentTimerValue, setSegmentTimerValue] = useState(0) // frozen value when paused
-  // Pending review state - when timer hits zero and questions auto-generated
-  const [isPendingReview, setIsPendingReview] = useState(false)
-  const [generateQEnabled, setGenerateQEnabled] = useState(true) // fail-safe button
-  const [roomSettings, setRoomSettings] = useState({
-    segmentTime: 2,
-    questionsPerSegment: 2,
-    difficulty: 'medium',
-    questionProvider: 'minimax',
-    questionTypeMix: { MCQ: 0, TF: 100, MSQ: 0 },
-    timeToAnswer: 30,
-    points: 100
-  })
   const [totalParticipants, setTotalParticipants] = useState(0)
-  const [answerCounts, setAnswerCounts] = useState({}) // questionId -> count
 
+  
+  
   useEffect(() => {
     if (token) {
       setAuthToken(token)
@@ -199,9 +243,7 @@ function RoomDetailPage() {
         leaveRoom(room.code, user?._id)
       }
       stopRecording()
-      if (segmentTimerRef.current) {
-        clearInterval(segmentTimerRef.current)
-      }
+      
     }
   }, [roomId])
 
@@ -248,67 +290,12 @@ function RoomDetailPage() {
     return () => socket.off('response:new', handleNewResponse)
   }, [socket])
 
-  // Listen for question launch events to show timer to teacher
-  useEffect(() => {
-    if (!socket) return
-
-  const startQuestionTimer = (question) => {
-    const timeToAnswer = question.timeToAnswer || roomSettings.timeToAnswer || 30
-
-    // Clear any existing timer
-    if (questionTimerRef.current) {
-      clearInterval(questionTimerRef.current)
-      questionTimerRef.current = null
-    }
-
-    setActiveQuestion(question)
-    setQuestionTimeLeft(timeToAnswer)
-
-    questionTimerRef.current = setInterval(() => {
-      setQuestionTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(questionTimerRef.current)
-          questionTimerRef.current = null
-          setActiveQuestion(null)
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }
-
-  const handleQuestionLaunched = (data) => {
-    console.log('[QUESTION LAUNCHED]', data)
-  }
-
-    socket.on('new_question', handleQuestionLaunched)
-    socket.on('question:started', handleQuestionLaunched)
-
-    return () => {
-      socket.off('new_question', handleQuestionLaunched)
-      socket.off('question:started', handleQuestionLaunched)
-    }
-  }, [socket, roomSettings.timeToAnswer])
-
   // Auto-scroll transcription
   useEffect(() => {
     if (transcriptRef.current) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
     }
   }, [transcript])
-
-  // Start segment timer when recording
-  useEffect(() => {
-    console.log('[EFFECT] Timer effect running, isRecording:', isRecording, 'segmentTime:', roomSettings.segmentTime)
-    // Only start timer if recording AND not pending review (popup shown)
-    if (isRecording && roomSettings.segmentTime > 0 && !isPendingReview) {
-      startSegmentTimer()
-    } else {
-      if (segmentTimerRef.current) {
-        clearInterval(segmentTimerRef.current)
-      }
-    }
-  }, [isRecording, roomSettings.segmentTime, isPendingReview])
 
   // Close settings dropdown when clicking outside
   useEffect(() => {
@@ -325,6 +312,8 @@ function RoomDetailPage() {
 
 
   // Check server transcription status on mount
+  
+  // Check server transcription status on mount
   const checkServerTranscription = async () => {
     try {
       const status = await getTranscriptionStatus()
@@ -339,237 +328,7 @@ function RoomDetailPage() {
     }
   }
 
-  const startSegmentTimer = (startFromSeconds = null) => {
-    console.log('[TIMER] startSegmentTimer called, segmentTime:', roomSettings.segmentTime, 'startFrom:', startFromSeconds)
-
-    // Clear any existing timer
-    if (segmentTimerRef.current) {
-      clearInterval(segmentTimerRef.current)
-      segmentTimerRef.current = null
-    }
-
-    if (roomSettings.segmentTime <= 0) {
-      console.log('[TIMER] segmentTime is 0, not starting timer')
-      return
-    }
-
-    const totalSeconds = startFromSeconds !== null ? startFromSeconds : (roomSettings.segmentTime * 60)
-    console.log('[TIMER] Starting timer for', totalSeconds, 'seconds')
-
-    let secondsLeft = totalSeconds
-    setSegmentTimeLeft(secondsLeft)
-    setIsSegmentPaused(false)
-
-    console.log('[TIMER] Creating interval for', totalSeconds, 'seconds')
-    segmentTimerRef.current = setInterval(() => {
-      secondsLeft -= 1
-      setSegmentTimeLeft(secondsLeft)
-      console.log('[TIMER] Tick:', secondsLeft, 'left')
-
-      if (secondsLeft <= 0) {
-        console.log('[TIMER] Timer reached 0!')
-        console.log('[TIMER] Clearing interval')
-        clearInterval(segmentTimerRef.current)
-        segmentTimerRef.current = null
-
-        console.log('[TIMER] Calling handleSegmentComplete')
-        try {
-          handleSegmentComplete()
-          console.log('[TIMER] handleSegmentComplete called successfully')
-        } catch (e) {
-          console.error('[TIMER] Error calling handleSegmentComplete:', e)
-        }
-      }
-    }, 1000)
-  }
-
-  const pauseSegmentTimer = () => {
-    if (segmentTimerRef.current) {
-      clearInterval(segmentTimerRef.current)
-      segmentTimerRef.current = null
-    }
-    setIsSegmentPaused(true)
-    console.log('[TIMER] Timer paused at', segmentTimeLeft, 'seconds')
-  }
-
-  const resumeSegmentTimer = () => {
-    if (isSegmentPaused && segmentTimeLeft > 0) {
-      console.log('[TIMER] Resuming timer from', segmentTimeLeft, 'seconds')
-      startSegmentTimer(segmentTimeLeft)
-    }
-  }
-
-  // On segment timer hit zero - auto-save and auto-generate questions
-  const handleSegmentComplete = async () => {
-    console.log('[SEGMENT] Timer hit zero - handling segment completion')
-
-    // PAUSE: stop recording and flush the final complete audio window before using the transcript.
-    await stopRecording()
-
-    if (segmentTimerRef.current) {
-      clearInterval(segmentTimerRef.current)
-      segmentTimerRef.current = null
-    }
-
-    // Mark as pending review
-    setIsPendingReview(true)
-    setGenerateQEnabled(false) // Disable manual button during auto-process
-
-    // Capture transcript
-    const textToUse = segmentTranscriptRef.current.trim() || transcript.trim()
-
-    if (!textToUse || textToUse.length < 50) {
-      console.log('[SEGMENT] Transcript too short (<50 chars), showing warning')
-      // Show warning toast - use window.alert for now since no toast library imported
-      window.alert('Transcription too short. Please speak more or trigger manually after starting next segment.')
-
-      // Resume for next segment
-      setIsPendingReview(false)
-      setGenerateQEnabled(true)
-      setCurrentSegment(prev => prev + 1)
-      setTranscript('')
-      setSegmentTranscript('')
-      segmentTranscriptRef.current = ''
-      finalTranscriptRef.current = ''
-      accumulatedTranscriptRef.current = ''
-      startRecording({ resetSegment: false })
-      return
-    }
-
-    // Save transcript to database before generating questions.
-    try {
-      await saveTranscript(room._id, currentSegment, textToUse, roomSettings.segmentTime * 60)
-      console.log('[SEGMENT] Transcript saved to DB')
-    } catch (err) {
-      console.error('[SEGMENT] Failed to save transcript:', err)
-      window.alert('Transcript could not be saved. Please try generating questions manually after checking the connection.')
-      setGenerateQEnabled(true)
-      return
-    }
-
-    // Auto-generate questions
-    try {
-      console.log('[SEGMENT] Auto-generating questions...')
-      const questions = await generateQuestionsFromText(textToUse, currentSegment)
-      if (questions && questions.length > 0) {
-        setPendingQuestions(questions)
-        setShowQuestionPopup(true)
-        setIsPopupOpen(true)
-      }
-    } catch (error) {
-      console.error('[SEGMENT] First generation attempt failed:', error)
-      // Auto-retry once
-      try {
-        console.log('[SEGMENT] Retrying question generation...')
-        const questions = await generateQuestionsFromText(textToUse, currentSegment)
-        if (questions && questions.length > 0) {
-          setPendingQuestions(questions)
-          setShowQuestionPopup(true)
-          setIsPopupOpen(true)
-        }
-      } catch (retryError) {
-        console.error('[SEGMENT] Retry also failed:', retryError)
-        window.alert('Failed to generate questions after retry. You can use the manual "Generate Q" button.')
-        setGenerateQEnabled(true) // Enable fail-safe manual button
-      }
-    }
-  }
-
-  const generateQuestionsFromText = async (text, segmentIndex) => {
-    return new Promise((resolve, reject) => {
-      setIsGeneratingQuestions(true)
-      fetch(`${API_URL}/questions/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          transcript: text,
-          config: {
-            numQuestions: roomSettings.questionsPerSegment,
-            difficulty: roomSettings.difficulty,
-            provider: roomSettings.questionProvider || 'minimax',
-            questionTypeMix: roomSettings.questionTypeMix || { MCQ: 0, TF: 100, MSQ: 0 }
-          }
-        })
-      })
-      .then(response => response.json())
-      .then(data => {
-        setIsGeneratingQuestions(false)
-
-        if (data.success && data.questions && data.questions.length > 0) {
-          const markedQuestions = data.questions.map(q => ({
-            ...q,
-            timeToAnswer: roomSettings.timeToAnswer,
-            points: roomSettings.points,
-            segmentIndex: segmentIndex
-          }))
-          resolve(markedQuestions) // Return questions for popup handling
-        } else {
-          reject(new Error(data.error || 'No questions generated'))
-        }
-      })
-      .catch(error => {
-        setIsGeneratingQuestions(false)
-        reject(error)
-      })
-    })
-  }
-
-  // Handle question generation from pasted text (TextToQuestionsPopup)
-  const handleTextToQuestionsGenerate = async (text, mode) => {
-    setShowTextToQuestions(false) // Close the text popup
-    setShowGeneratingPopup(true)  // Show generating popup
-    setIsGeneratingFromText(true)
-
-    try {
-      const typeMix = mode === 'TF'
-        ? { MCQ: 0, TF: 100, MSQ: 0 }
-        : (roomSettings.questionTypeMix || { MCQ: 0, TF: 100, MSQ: 0 })
-
-      const response = await fetch(`${API_URL}/questions/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          transcript: text,
-          config: {
-            numQuestions: roomSettings.questionsPerSegment,
-            difficulty: roomSettings.difficulty,
-            provider: roomSettings.questionProvider || 'minimax',
-            questionTypeMix: typeMix
-          }
-        })
-      })
-
-      const data = await response.json()
-      setIsGeneratingFromText(false)
-      setShowGeneratingPopup(false) // Close generating popup
-
-      if (data.success && data.questions && data.questions.length > 0) {
-        const markedQuestions = data.questions.map(q => ({
-          ...q,
-          timeToAnswer: roomSettings.timeToAnswer,
-          points: roomSettings.points,
-          segmentIndex: currentSegment
-        }))
-        setPendingTextQuestions(markedQuestions)
-        setShowTextQuestionPopup(true)
-      } else {
-        window.alert(data.error || 'Failed to generate questions. Please try again.')
-      }
-    } catch (error) {
-      setIsGeneratingFromText(false)
-      setShowGeneratingPopup(false) // Close generating popup
-      console.error('Text to questions error:', error)
-      window.alert('Failed to generate questions. Please try again.')
-    }
-  }
-
-  const loadRoom = async () => {
+const loadRoom = async () => {
     setIsLoading(true)
     try {
       const roomData = await getRoom(roomId)
@@ -583,6 +342,7 @@ function RoomDetailPage() {
       }
       // Load questions for this room from database
       loadQuestions(roomId)
+      fetchSavedRoomQuestionIds(roomId)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -640,214 +400,8 @@ function RoomDetailPage() {
   }
 
   // Process transcription queue in order
-  const processTranscriptionQueue = useCallback(async () => {
-    if (isProcessingQueueRef.current) return
-    isProcessingQueueRef.current = true
-
-    while (transcriptionQueueRef.current.length > 0) {
-      // Find the next expected sequence number
-      const nextItem = transcriptionQueueRef.current.find(item => item.sequence === pendingSequenceRef.current)
-
-      if (!nextItem) {
-        // Do not block forever if a sequence was skipped or failed.
-        break
-      }
-
-      // Remove from queue
-      transcriptionQueueRef.current = transcriptionQueueRef.current.filter(item => item !== nextItem)
-
-      // Process the transcription result
-      if (nextItem.text && nextItem.text.trim()) {
-        const text = nextItem.text.trim()
-        console.log(`[TRANSCRIPTION] Processing sequence ${nextItem.sequence}: "${text.substring(0, 50)}..."`)
-        finalTranscriptRef.current += text + ' '
-        accumulatedTranscriptRef.current += text + ' '
-        setTranscript(finalTranscriptRef.current)
-        segmentTranscriptRef.current += ' ' + text
-        setSegmentTranscript(segmentTranscriptRef.current)
-      }
-
-      pendingSequenceRef.current++
-    }
-
-    isProcessingQueueRef.current = false
-  }, [])
-
-  // Add transcription result to queue
-  const addToTranscriptionQueue = useCallback((sequence, text) => {
-    transcriptionQueueRef.current.push({ sequence, text })
-    // Sort by sequence to maintain order
-    transcriptionQueueRef.current.sort((a, b) => a.sequence - b.sequence)
-    processTranscriptionQueue()
-  }, [processTranscriptionQueue])
-
-  const sendForTranscription = useCallback(async (audioBlob, sequence) => {
-    if (!audioBlob || audioBlob.size < 5000) {
-      console.log(`[TRANSCRIPTION] Skipping small audio: ${audioBlob?.size || 0} bytes`)
-      addToTranscriptionQueue(sequence, '')
-      return
-    }
-
-    try {
-      const headerBytes = new Uint8Array(await audioBlob.slice(0, 4).arrayBuffer())
-      console.log(`[TRANSCRIPTION] Complete blob, sequence ${sequence}, size: ${audioBlob.size}, type: ${audioBlob.type}, header: ${headerBytes[0]},${headerBytes[1]},${headerBytes[2]},${headerBytes[3]}`)
-    } catch (error) {
-      console.warn('[TRANSCRIPTION] Failed to inspect audio header:', error)
-    }
-
-    try {
-      // Convert to WAV for Whisper
-      const wavBlob = await convertWebMToWav(audioBlob)
-
-      if (!wavBlob) {
-        console.log(`[TRANSCRIPTION] Sequence ${sequence} conversion failed, skipping`)
-        addToTranscriptionQueue(sequence, '')
-        return
-      }
-
-      const result = await transcribeAudio(wavBlob)
-      addToTranscriptionQueue(sequence, result.text || '')
-    } catch (error) {
-      console.error(`[TRANSCRIPTION] Error for sequence ${sequence}:`, error.message)
-      addToTranscriptionQueue(sequence, '')
-    }
-  }, [room?._id, addToTranscriptionQueue])
-
-  const startTranscriptionWindow = useCallback(() => {
-    if (!recordingActiveRef.current || !streamRef.current) return
-
-    const sequence = nextSequenceRef.current++
-    const chunks = []
-    const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: selectedMimeTypeRef.current })
-    mediaRecorderRef.current = mediaRecorder
-
-    mediaRecorderStopPromiseRef.current = new Promise((resolve) => {
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data)
-        }
-      }
-
-      mediaRecorder.onerror = (error) => {
-        console.error('MediaRecorder error:', error)
-        setModelStatus('Recording error')
-      }
-
-      mediaRecorder.onstop = async () => {
-        if (transcriptionIntervalRef.current) {
-          clearTimeout(transcriptionIntervalRef.current)
-          transcriptionIntervalRef.current = null
-        }
-
-        const audioBlob = new Blob(chunks, { type: mediaRecorder.mimeType || selectedMimeTypeRef.current })
-        console.log(`[TRANSCRIPTION] Sending sequence ${sequence}, size: ${audioBlob.size} bytes`)
-        await sendForTranscription(audioBlob, sequence)
-        resolve()
-
-        if (recordingActiveRef.current) {
-          startTranscriptionWindow()
-        }
-      }
-    })
-
-    mediaRecorder.start()
-    transcriptionIntervalRef.current = setTimeout(() => {
-      if (mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop()
-      }
-    }, 10000)
-  }, [sendForTranscription])
-  
-  const startRecording = async ({ resetSegment = true } = {}) => {
-    if (recordingActiveRef.current) return
-
-    try {
-      // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-
-      // Initialize MediaRecorder - try OGG first as it handles chunking better than WebM
-      let selectedMimeType = 'audio/ogg'
-      const possibleTypes = [
-        'audio/ogg;codecs=opus',
-        'audio/ogg',
-        'audio/webm;codecs=opus',
-        'audio/webm'
-      ]
-      for (const mimeType of possibleTypes) {
-        if (MediaRecorder.isTypeSupported(mimeType)) {
-          selectedMimeType = mimeType
-          console.log(`[RECORDING] Using mimeType: ${selectedMimeType}`)
-          break
-        }
-      }
-      audioChunksRef.current = []
-      selectedMimeTypeRef.current = selectedMimeType
-
-      // Initialize segment
-      setTranscript('')
-      finalTranscriptRef.current = ''
-      accumulatedTranscriptRef.current = ''
-      setCurrentSegment(prev => resetSegment ? 1 : prev + 1)
-      setSegmentTranscript('')
-      segmentTranscriptRef.current = ''
-
-      // Reset transcription queue
-      transcriptionQueueRef.current = []
-      nextSequenceRef.current = 0
-      pendingSequenceRef.current = 0
-      isProcessingQueueRef.current = false
-
-      recordingActiveRef.current = true
-      setIsRecording(true)
-      setIsTranscribing(true)
-      setModelStatus('Listening...')
-
-      startTranscriptionWindow()
-
-    } catch (error) {
-      console.error('Error starting recording:', error)
-      setModelStatus('Microphone access denied')
-    }
-  }
-
-  const stopRecording = async () => {
-    recordingActiveRef.current = false
-
-    // Stop the current 10-second recorder window.
-    if (transcriptionIntervalRef.current) {
-      clearTimeout(transcriptionIntervalRef.current)
-      transcriptionIntervalRef.current = null
-    }
-
-    // Stop MediaRecorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
-    }
-
-    if (mediaRecorderStopPromiseRef.current) {
-      await mediaRecorderStopPromiseRef.current
-      mediaRecorderStopPromiseRef.current = null
-    }
-
-    // Wait briefly for transcription queue updates from the final chunk.
-    await new Promise(resolve => setTimeout(resolve, 500))
-    await processTranscriptionQueue()
-
-    // Stop all tracks
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop())
-        streamRef.current = null
-      }
-
-    if (segmentTimerRef.current) {
-      clearInterval(segmentTimerRef.current)
-    }
-
-    setIsRecording(false)
-    setIsTranscribing(false)
-    setModelStatus('Ready')
-  }
+    // Add transcription result to queue
+          
 
   const toggleRecording = () => {
     if (isRecording) {
@@ -859,7 +413,7 @@ function RoomDetailPage() {
 
   const clearTranscript = () => {
     setTranscript('')
-    finalTranscriptRef.current = ''
+    
     setSegmentTranscript('')
     segmentTranscriptRef.current = ''
   }
@@ -1386,7 +940,7 @@ function RoomDetailPage() {
               {/* Status Text */}
               <div style={{ textAlign: 'center' }}>
                 <p style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: isRecording ? '#ef4444' : 'var(--text-primary)' }}>
-                  {isTranscribing ? 'Listening...' : (isRecording ? 'Recording...' : 'Start Recording')}
+                  {isRecording ? 'Recording...' : (false ? 'Recording...' : 'Start Recording')}
                 </p>
                 <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
                   {modelStatus}
@@ -1470,7 +1024,7 @@ function RoomDetailPage() {
                   <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
                     Current Segment Transcription
                   </span>
-                  {isTranscribing && (
+                  {isRecording && (
                     <div style={{ padding: '2px 8px', background: '#fef2f2', borderRadius: '10px', fontSize: '10px', color: '#ef4444', fontWeight: '600' }}>
                       LIVE
                     </div>
@@ -1798,7 +1352,7 @@ function RoomDetailPage() {
             // Clear segment transcript for fresh start
             setSegmentTranscript('')
             segmentTranscriptRef.current = ''
-            finalTranscriptRef.current = ''
+            
 
             // Reset pending review flag
             setIsPendingReview(false)
@@ -1819,7 +1373,7 @@ function RoomDetailPage() {
             setPendingQuestions([])
             setSegmentTranscript('')
             segmentTranscriptRef.current = ''
-            finalTranscriptRef.current = ''
+            
             setIsPendingReview(false)
             setGenerateQEnabled(true)
             setSegmentTimeLeft(roomSettings.segmentTime * 60)

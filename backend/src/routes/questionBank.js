@@ -107,12 +107,8 @@ router.get('/', async (req, res) => {
     const query = { teacherId: req.user._id, isArchived: false }
     const { origin, tags } = req.query
     if (typeof search === 'string' && search.trim()) {
-      const s = escapeRegex(search.trim().slice(0, 100))
-      query.$or = [
-        { questionText: { $regex: s, $options: 'i' } },
-        { tags: { $in: [new RegExp('^' + s + '$', 'i')] } },
-        { topic: { $regex: s, $options: 'i' } }
-      ]
+      const s = search.trim().slice(0, 100)
+      query.$text = { $search: s }
     }
     if (typeof origin === 'string' && origin.trim()) {
       query['provenance.origin'] = origin
@@ -173,6 +169,25 @@ router.get('/:id/import-ready', async (req, res) => {
   } catch (err) {
     console.error('[questionBank:import-ready]', err)
     res.status(500).json({ success: false, error: 'Failed to prepare import' })
+  }
+})
+
+router.get('/room/:roomId/saved', async (req, res) => {
+  try {
+    const { roomId } = req.params
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({ success: false, error: 'Invalid roomId' })
+    }
+    const savedQuestions = await QuestionBank.find({
+      teacherId: req.user._id,
+      'provenance.sourceSessionId': roomId,
+      isArchived: false
+    }).select('_id').lean()
+    
+    res.json({ success: true, savedIds: savedQuestions.map(q => q._id) })
+  } catch (err) {
+    console.error('[questionBank:room-saved]', err)
+    res.status(500).json({ success: false, error: 'Failed to fetch saved questions for room' })
   }
 })
 

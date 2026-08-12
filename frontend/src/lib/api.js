@@ -92,6 +92,7 @@ export const questionBankApi = {
   },
   saveFromRoomQuestion: (data) => api.post('/question-bank/from-room-question', data),
   prepareImport: (id) => api.get(`/question-bank/${id}/import-ready`),
+  getRoomSavedIds: (roomId) => api.get(`/question-bank/room/${roomId}/saved`),
   reuse: (id, sessionId) => api.post(`/question-bank/${id}/reuse`, { sessionId }),
   archive: (id) => api.delete(`/question-bank/${id}`),
   getTopics: () => api.get('/question-bank/meta/topics'),

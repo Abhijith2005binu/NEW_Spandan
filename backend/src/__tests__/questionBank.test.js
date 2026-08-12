@@ -1,70 +1,20 @@
 import { jest } from '@jest/globals'
 import mongoose from 'mongoose'
 
-// ---- Mock dependencies BEFORE importing the route ----
-jest.unstable_mockModule('../models/QuestionBank.js', () => {
-  const data = []
-  let nextN = 1
-  // Use real ObjectId strings so the route's isValid() gate passes
-  const make = (doc) => ({
-    ...doc,
-    _id: new mongoose.Types.ObjectId().toString(),
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    toObject() { return this }
-  })
-  return {
-    default: {
-      find: jest.fn((query = {}) => {
-        let items = data.filter(d => !d.isArchived)
-        if (query.owner) items = items.filter(d => String(d.owner) === String(query.owner))
-        if (query.difficulty) items = items.filter(d => d.difficulty === query.difficulty)
-        if (query.topic) items = items.filter(d => new RegExp(`^${query.topic}$`, 'i').test(d.topic))
-        return {
-          sort: () => ({
-            skip: () => ({
-              limit: () => Promise.resolve(items)
-            })
-          })
-        }
-      }),
-      countDocuments: jest.fn(async (query = {}) => {
-        return data.filter(d => !d.isArchived && String(d.owner) === String(query.owner)).length
-      }),
-      aggregate: jest.fn(async () => []),
-      create: jest.fn(async (doc) => {
-        const saved = make(doc)
-        data.push(saved)
-        return saved
-      }),
-      findOne: jest.fn(async (query) => {
-        return data.find(d =>
-          d._id === query._id &&
-          String(d.owner) === String(query.owner) &&
-          (query.isArchived === undefined || !!d.isArchived === !!query.isArchived)
-        ) || null
-      }),
-      findOneAndUpdate: jest.fn(async (query, update) => {
-        const idx = data.findIndex(d => d._id === query._id && String(d.owner) === String(query.owner))
-        if (idx === -1) return null
-        Object.assign(data[idx], update, { updatedAt: new Date() })
-        return data[idx]
-      })
-    }
-  }
-})
+// Set a stable user ID for tests
+const TEST_USER_ID = new mongoose.Types.ObjectId().toString()
 
 jest.unstable_mockModule('../middleware/auth.js', () => ({
   authenticate: (req, res, next) => {
-    req.user = { _id: 'user-1', role: 'teacher' }
+    req.user = { _id: TEST_USER_ID, role: 'teacher' }
     next()
   }
 }))
 
-// ---- Now import the route (and supporting modules) ----
 const express = await import('express')
 const request = (await import('supertest')).default
 const questionBankRoutes = (await import('../routes/questionBank.js')).default
+const QuestionBank = (await import('../models/QuestionBank.js')).default
 
 const buildApp = () => {
   const app = express.default()
@@ -75,7 +25,21 @@ const buildApp = () => {
 
 describe('QuestionBank API', () => {
   let app
-  beforeAll(() => { app = buildApp() })
+  
+  beforeAll(async () => {
+    app = buildApp()
+    await mongoose.connect(process.env.MONGO_URL)
+  })
+  
+  afterAll(async () => {
+    await mongoose.connection.dropDatabase()
+    await mongoose.connection.close()
+  })
+  
+  afterEach(async () => {
+    await QuestionBank.deleteMany({})
+  })
+
 
   test('GET / returns empty list initially', async () => {
     const res = await request(app).get('/api/question-bank')

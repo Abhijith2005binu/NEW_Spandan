@@ -70,5 +70,6 @@ const questionBankSchema = new mongoose.Schema({
 
 questionBankSchema.index({ teacherId: 1, isArchived: 1, createdAt: -1 })
 questionBankSchema.index({ teacherId: 1, topic: 1 })
+questionBankSchema.index({ questionText: 'text', tags: 'text', topic: 'text' })
 
 export default mongoose.model('QuestionBank', questionBankSchema)

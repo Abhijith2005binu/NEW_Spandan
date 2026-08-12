@@ -66,6 +66,19 @@ export const useQuestionBankStore = create((set, get) => ({
     }
   },
 
+  fetchSavedRoomQuestionIds: async (roomId) => {
+    if (!roomId) return
+    try {
+      const data = await questionBankApi.getRoomSavedIds(roomId)
+      if (data && Array.isArray(data.savedIds)) {
+        data.savedIds.forEach(id => sessionSavedIds.add(id))
+        set({ sessionSavedIds: new Set(sessionSavedIds) })
+      }
+    } catch (e) {
+      console.error('Failed to fetch saved question ids', e)
+    }
+  },
+
   // ONE-CLICK SAVE: validate first, then send. Returns { ok, question?, error? }
   saveFromRoomQuestion: async (roomQuestion, roomId, meta = {}) => {
     // Frontend validation gate so we don't even hit the API with bad data
