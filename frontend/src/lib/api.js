@@ -48,6 +48,9 @@ export const api = {
     const data = await response.json()
 
     if (!response.ok) {
+      if (response.status === 401) {
+        useAuthStore.getState().logout()
+      }
       throw new Error(data.error || data.message || 'Request failed')
     }
 

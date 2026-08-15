@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
@@ -5,7 +6,6 @@ import rateLimit from 'express-rate-limit'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import jwt from 'jsonwebtoken'
-import dotenv from 'dotenv'
 import mongoose from 'mongoose'
 
 // Import routes
@@ -19,8 +19,6 @@ import questionBankRoutes from './routes/questionBank.js'
 
 // Import models for reference
 import './models/index.js'
-
-dotenv.config()
 
 const BASE_PATH = process.env.BASE_PATH || ''
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3001').split(',').map(s => s.trim())
