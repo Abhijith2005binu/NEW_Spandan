@@ -18,6 +18,8 @@ function QuestionBankPage() {
   const [folderId, setFolderId] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [importPromptQ, setImportPromptQ] = useState(null)
+  const [importCodeInput, setImportCodeInput] = useState('')
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type })
@@ -37,9 +39,9 @@ function QuestionBankPage() {
     fetchFolders()
   }, [fetchTopics, fetchFolders])
 
-  const handleImportByCode = useCallback(async (bankQ) => {
-    const roomCode = window.prompt("Enter Room Code to import this question:")
-    if (!roomCode) return
+  const confirmImport = async (bankQ, roomCode) => {
+    setImportPromptQ(null)
+    setImportCodeInput('')
     setBusyId(bankQ._id)
     try {
       const res = await importByRoomCode(bankQ._id, roomCode)
@@ -49,7 +51,7 @@ function QuestionBankPage() {
     } finally {
       setBusyId(null)
     }
-  }, [importByRoomCode])
+  }
 
   const handleArchive = useCallback(async (q) => {
     if (!window.confirm('Archive this question?')) return
@@ -234,7 +236,7 @@ function QuestionBankPage() {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 130 }}>
                     <button
-                      onClick={() => handleImportByCode(q)}
+                      onClick={() => setImportPromptQ(q)}
                       disabled={busyId === q._id}
                       title="Import this question to an active room using its code"
                       style={{
@@ -264,6 +266,47 @@ function QuestionBankPage() {
           )}
         </div>
       </div>
+
+      {importPromptQ && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 12, width: 320, boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 16px', color: 'var(--text-primary)' }}>Import Question</h3>
+            <p style={{ margin: '0 0 12px', fontSize: 14, color: 'var(--text-secondary)' }}>Enter the Room Code of your active room:</p>
+            <input 
+              autoFocus
+              type="text" 
+              value={importCodeInput} 
+              onChange={e => setImportCodeInput(e.target.value.toUpperCase())}
+              placeholder="e.g. 7JW5K4"
+              style={{ width: '100%', padding: '10px 14px', marginBottom: 16,
+                       background: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+                       color: 'var(--text-primary)', borderRadius: 8, fontSize: 16, boxSizing: 'border-box',
+                       fontFamily: 'monospace' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button 
+                onClick={() => { setImportPromptQ(null); setImportCodeInput('') }}
+                style={{ padding: '8px 16px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600 }}>
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  if (importCodeInput) {
+                    confirmImport(importPromptQ, importCodeInput)
+                  }
+                }}
+                disabled={!importCodeInput}
+                style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, opacity: !importCodeInput ? 0.5 : 1 }}>
+                Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div style={{
