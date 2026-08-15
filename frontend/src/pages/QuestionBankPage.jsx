@@ -9,7 +9,7 @@ function QuestionBankPage() {
   const { user } = useAuthStore()
   const {
     items, total, topics, folders, isLoading, error,
-    fetchList, fetchTopics, fetchFolders, importByRoomCode, prepareImport, stageForImport, archive, clearError, exportBank
+    fetchList, fetchTopics, fetchFolders, importByRoomCode, prepareImport, stageForImport, archive, clearError
   } = useQuestionBankStore()
 
   const [search, setSearch] = useState('')
@@ -63,23 +63,6 @@ function QuestionBankPage() {
     }
   }, [archive])
 
-  const handleExport = async () => {
-    try {
-      const csvStr = await exportBank('csv')
-      const blob = new Blob([csvStr], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'question_bank.csv'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      showToast('✅ Exported successfully', 'success')
-    } catch (e) {
-      showToast('⚠️ Export failed', 'error')
-    }
-  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary)', fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif' }}>
@@ -97,11 +80,6 @@ function QuestionBankPage() {
               </p>
             </div>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-              <button 
-                onClick={handleExport}
-                style={{ padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
-                📥 Export CSV
-              </button>
               <ThemeToggle />
               <ProfileDropdown user={user} />
             </div>

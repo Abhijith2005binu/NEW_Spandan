@@ -193,15 +193,7 @@ export const useQuestionBankStore = create((set, get) => ({
     }
   },
 
-  exportBank: async (format = 'csv') => {
-    try {
-      const data = await questionBankApi.exportData(format)
-      return data
-    } catch (e) {
-      set({ error: e.message || 'Failed to export question bank' })
-      throw e
-    }
-  },
+
 
   clearError: () => set({ error: '' })
 }))

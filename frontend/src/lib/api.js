@@ -98,18 +98,7 @@ export const questionBankApi = {
   archive: (id) => api.delete(`/question-bank/${id}`),
   getTopics: () => api.get('/question-bank/meta/topics'),
   getFolders: () => api.get('/question-bank/folders'),
-  getExportUrl: (format = 'csv') => {
-    const { token } = useAuthStore.getState()
-    return `${API_URL}/question-bank/export?format=${format}&token=${token}`
-  },
-  exportData: async (format = 'csv') => {
-    const { token } = useAuthStore.getState()
-    const response = await fetch(`${API_URL}/question-bank/export?format=${format}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-    if (!response.ok) throw new Error('Failed to export data')
-    return format === 'csv' ? response.text() : response.json()
-  }
+
 }
 
 export default api
