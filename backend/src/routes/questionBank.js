@@ -77,6 +77,7 @@ const buildBankDocFromRoomQuestion = (raw, ownerId, sourceRoom, meta) => {
       teacherId: ownerId, type, questionText: question, options: normalizedOptions,
       correctAnswer: sanitizeText(raw.correctAnswer || '', 200),
       explanation: sanitizeText(raw.explanation || '', 2000),
+      timeToAnswer: typeof raw.timeToAnswer === 'number' ? raw.timeToAnswer : 30,
       topic, difficulty, tags,
       provenance: {
         origin: 'manual', // default if not specified
@@ -292,12 +293,18 @@ router.post('/:id/reuse', async (req, res) => {
       question: bankEntry.questionText,
       options: bankEntry.options,
       explanation: bankEntry.explanation,
+      timeToAnswer: bankEntry.timeToAnswer || 30,
       status: 'approved',
       sourceBankId: bankEntry._id,
       createdBy: req.user._id
     })
     
     await newQuestion.save()
+    
+    const io = req.app.get('io')
+    if (io && room.code) {
+      io.to(room.code).emit('new_question', newQuestion)
+    }
     
     res.json({ success: true, question: newQuestion })
   } catch (err) {
@@ -333,12 +340,18 @@ router.post('/:id/import-by-code', async (req, res) => {
       question: bankEntry.questionText,
       options: bankEntry.options,
       explanation: bankEntry.explanation,
+      timeToAnswer: bankEntry.timeToAnswer || 30,
       status: 'approved',
       sourceBankId: bankEntry._id,
       createdBy: req.user._id
     })
     
     await newQuestion.save()
+    
+    const io = req.app.get('io')
+    if (io && roomCode) {
+      io.to(roomCode).emit('new_question', newQuestion)
+    }
     
     res.json({ success: true, question: newQuestion, roomName: room.name })
   } catch (err) {

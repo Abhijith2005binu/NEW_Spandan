@@ -40,6 +40,10 @@ const questionBankSchema = new mongoose.Schema({
     default: '',
     index: true
   },
+  timeToAnswer: {
+    type: Number,
+    default: 30
+  },
   difficulty: {
     type: String,
     enum: ['easy', 'medium', 'hard'],
