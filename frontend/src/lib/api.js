@@ -68,7 +68,9 @@ export const roomApi = {
   getById: (id) => api.get(`/rooms/${id}`),
   joinByCode: (code) => api.get(`/rooms/join/${code}`),
   update: (id, data) => api.put(`/rooms/${id}`, data),
-  delete: (id) => api.delete(`/rooms/${id}`)
+  delete: (id) => api.delete(`/rooms/${id}`),
+  getStudentRoomHistory: () => api.get('/rooms/student/room-history'),
+  getActiveRoomsByStudent: () => api.get('/rooms/student/active')
 }
 
 export const questionApi = {
