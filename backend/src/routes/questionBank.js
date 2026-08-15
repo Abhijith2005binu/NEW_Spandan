@@ -167,6 +167,74 @@ router.post('/from-room-question', async (req, res) => {
   }
 })
 
+router.get('/meta/topics', async (req, res) => {
+  try {
+    const topics = await QuestionBank.aggregate([
+      { $match: { teacherId: req.user._id, isArchived: false, topic: { $ne: '' } } },
+      { $group: { _id: '$topic', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 200 }
+    ])
+    res.json({ success: true, topics: topics.map(t => ({ name: t._id, count: t.count })) })
+  } catch (err) {
+    console.error('[questionBank:topics]', err)
+    res.status(500).json({ success: false, error: 'Failed to load topics' })
+  }
+})
+
+router.get('/export', async (req, res) => {
+  try {
+    const { format = 'json' } = req.query
+    const query = { teacherId: req.user._id, isArchived: false }
+    const items = await QuestionBank.find(query).sort({ createdAt: -1 }).lean()
+    
+    if (format === 'csv') {
+      const csvLines = [
+        ['ID', 'Type', 'Question', 'Topic', 'Difficulty', 'Origin', 'AI Provider', 'Edited', 'Times Used', 'Avg Correct Rate'].join(',')
+      ]
+      for (const item of items) {
+        const timesUsed = item.usageHistory?.length || 0
+        const avgCorrectRate = timesUsed > 0 
+          ? item.usageHistory.reduce((acc, curr) => acc + (curr.correctRate || 0), 0) / timesUsed
+          : 0
+        
+        csvLines.push([
+          item._id.toString(),
+          item.type,
+          `"${(item.questionText || '').replace(/"/g, '""')}"`,
+          `"${item.topic || ''}"`,
+          item.difficulty || '',
+          item.provenance?.origin || '',
+          item.provenance?.aiProvider || '',
+          item.provenance?.editedBeforeApproval ? 'Yes' : 'No',
+          timesUsed,
+          avgCorrectRate.toFixed(2)
+        ].join(','))
+      }
+      res.setHeader('Content-Type', 'text/csv')
+      res.setHeader('Content-Disposition', 'attachment; filename="question_bank.csv"')
+      return res.send(csvLines.join('\n'))
+    }
+    
+    // Default JSON
+    res.json({ success: true, items })
+  } catch (err) {
+    console.error('[questionBank:export]', err)
+    res.status(500).json({ success: false, error: 'Failed to export questions' })
+  }
+})
+
+router.get('/folders', async (req, res) => {
+  try {
+    const QuestionBankFolder = (await import('../models/QuestionBankFolder.js')).default
+    const folders = await QuestionBankFolder.find({ teacherId: req.user._id }).sort({ createdAt: -1 })
+    res.json({ success: true, folders })
+  } catch (err) {
+    console.error('[questionBank:folders]', err)
+    res.status(500).json({ success: false, error: 'Failed to fetch folders' })
+  }
+})
+
 router.get('/:id/import-ready', async (req, res) => {
   try {
     const { id } = req.params
@@ -236,62 +304,6 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
-router.get('/meta/topics', async (req, res) => {
-  try {
-    const topics = await QuestionBank.aggregate([
-      { $match: { teacherId: req.user._id, isArchived: false, topic: { $ne: '' } } },
-      { $group: { _id: '$topic', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 200 }
-    ])
-    res.json({ success: true, topics: topics.map(t => ({ name: t._id, count: t.count })) })
-  } catch (err) {
-    console.error('[questionBank:topics]', err)
-    res.status(500).json({ success: false, error: 'Failed to load topics' })
-  }
-})
-
-router.get('/export', async (req, res) => {
-  try {
-    const { format = 'json' } = req.query
-    const query = { teacherId: req.user._id, isArchived: false }
-    const items = await QuestionBank.find(query).sort({ createdAt: -1 }).lean()
-    
-    if (format === 'csv') {
-      const csvLines = [
-        ['ID', 'Type', 'Question', 'Topic', 'Difficulty', 'Origin', 'AI Provider', 'Edited', 'Times Used', 'Avg Correct Rate'].join(',')
-      ]
-      for (const item of items) {
-        const timesUsed = item.usageHistory?.length || 0
-        const avgCorrectRate = timesUsed > 0 
-          ? item.usageHistory.reduce((acc, curr) => acc + (curr.correctRate || 0), 0) / timesUsed
-          : 0
-        
-        csvLines.push([
-          item._id.toString(),
-          item.type,
-          `"${(item.questionText || '').replace(/"/g, '""')}"`,
-          `"${item.topic || ''}"`,
-          item.difficulty || '',
-          item.provenance?.origin || '',
-          item.provenance?.aiProvider || '',
-          item.provenance?.editedBeforeApproval ? 'Yes' : 'No',
-          timesUsed,
-          avgCorrectRate.toFixed(2)
-        ].join(','))
-      }
-      res.setHeader('Content-Type', 'text/csv')
-      res.setHeader('Content-Disposition', 'attachment; filename="question_bank.csv"')
-      return res.send(csvLines.join('\n'))
-    }
-    
-    // Default JSON
-    res.json({ success: true, items })
-  } catch (err) {
-    console.error('[questionBank:export]', err)
-    res.status(500).json({ success: false, error: 'Failed to export questions' })
-  }
-})
 
 router.post('/:id/reuse', async (req, res) => {
   try {
@@ -375,15 +387,5 @@ router.post('/:id/import-by-code', async (req, res) => {
   }
 })
 
-router.get('/folders', async (req, res) => {
-  try {
-    const QuestionBankFolder = (await import('../models/QuestionBankFolder.js')).default
-    const folders = await QuestionBankFolder.find({ teacherId: req.user._id }).sort({ createdAt: -1 })
-    res.json({ success: true, folders })
-  } catch (err) {
-    console.error('[questionBank:folders]', err)
-    res.status(500).json({ success: false, error: 'Failed to fetch folders' })
-  }
-})
 
 export default router
