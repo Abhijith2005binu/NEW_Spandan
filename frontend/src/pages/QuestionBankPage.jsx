@@ -8,13 +8,14 @@ import ProfileDropdown from '../components/ProfileDropdown'
 function QuestionBankPage() {
   const { user } = useAuthStore()
   const {
-    items, total, topics, isLoading, error,
-    fetchList, fetchTopics, prepareImport, stageForImport, archive, clearError, exportBank
+    items, total, topics, folders, isLoading, error,
+    fetchList, fetchTopics, fetchFolders, importByRoomCode, prepareImport, stageForImport, archive, clearError, exportBank
   } = useQuestionBankStore()
 
   const [search, setSearch] = useState('')
   const [topic, setTopic] = useState('')
   const [difficulty, setDifficulty] = useState('')
+  const [folderId, setFolderId] = useState('')
   const [busyId, setBusyId] = useState(null)
   const [toast, setToast] = useState(null)
 
@@ -26,27 +27,29 @@ function QuestionBankPage() {
   // Debounced search
   useEffect(() => {
     const t = setTimeout(() => {
-      fetchList({ search, topic, difficulty })
+      fetchList({ search, topic, difficulty, folderId })
     }, 250)
     return () => clearTimeout(t)
-  }, [search, topic, difficulty, fetchList])
+  }, [search, topic, difficulty, folderId, fetchList])
 
   useEffect(() => {
     fetchTopics()
-  }, [fetchTopics])
+    fetchFolders()
+  }, [fetchTopics, fetchFolders])
 
-  const handleAddToRoom = useCallback(async (bankQ) => {
+  const handleImportByCode = useCallback(async (bankQ) => {
+    const roomCode = window.prompt("Enter Room Code to import this question:")
+    if (!roomCode) return
     setBusyId(bankQ._id)
     try {
-      const ready = await prepareImport(bankQ._id)
-      stageForImport(ready)
-      showToast('✅ Staged — open a room to add it', 'success')
+      const res = await importByRoomCode(bankQ._id, roomCode)
+      showToast(`✅ Imported to room: ${res.roomName}`, 'success')
     } catch (e) {
-      showToast('⚠️ Could not stage question', 'error')
+      showToast('⚠️ Could not import question. Check room code.', 'error')
     } finally {
       setBusyId(null)
     }
-  }, [prepareImport, stageForImport])
+  }, [importByRoomCode])
 
   const handleArchive = useCallback(async (q) => {
     if (!window.confirm('Archive this question?')) return
@@ -129,6 +132,13 @@ function QuestionBankPage() {
                        borderRadius: 8, fontSize: 14, minWidth: 160 }}>
               <option value="">All topics</option>
               {topics.map(t => <option key={t.name} value={t.name}>🏷️ {t.name} ({t.count})</option>)}
+            </select>
+            <select value={folderId} onChange={(e) => setFolderId(e.target.value)}
+              style={{ padding: '10px 14px', background: 'var(--bg-card)',
+                       border: '1px solid var(--border-color)', color: 'var(--text-primary)',
+                       borderRadius: 8, fontSize: 14, minWidth: 160 }}>
+              <option value="">All folders</option>
+              {folders.map(f => <option key={f._id} value={f._id}>📁 {f.name} ({f.roomCode})</option>)}
             </select>
             <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
               style={{ padding: '10px 14px', background: 'var(--bg-card)',
@@ -224,9 +234,9 @@ function QuestionBankPage() {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 130 }}>
                     <button
-                      onClick={() => handleAddToRoom(q)}
+                      onClick={() => handleImportByCode(q)}
                       disabled={busyId === q._id}
-                      title="Stage this question — open a room to drop it in"
+                      title="Import this question to an active room using its code"
                       style={{
                         padding: '10px 14px', background: busyId === q._id ? '#94a3b8' : '#3b82f6',
                         color: 'white', border: 'none', borderRadius: 8, fontWeight: 700,
@@ -234,7 +244,7 @@ function QuestionBankPage() {
                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6
                       }}
                     >
-                      {busyId === q._id ? '⏳' : '➕ Add to Room'}
+                      {busyId === q._id ? '⏳' : '📥 Import to Room'}
                     </button>
                     <button
                       onClick={() => handleArchive(q)}

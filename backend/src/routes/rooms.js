@@ -12,6 +12,17 @@ router.post('/', authenticate, authorize('teacher'), validate(createRoomSchema),
     const { name, settings } = req.validatedBody
     const room = await createRoom(name, req.user._id, settings)
 
+    import('../models/QuestionBankFolder.js')
+      .then(({ default: QuestionBankFolder }) => {
+        return QuestionBankFolder.create({
+          teacherId: req.user._id,
+          name: room.name,
+          roomCode: room.code,
+          roomId: room._id
+        })
+      })
+      .catch(err => console.error('[Auto-Capture Error] Failed to create QuestionBankFolder:', err))
+
     res.status(201).json({
       message: 'Room created successfully',
       room

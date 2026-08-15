@@ -1216,22 +1216,22 @@ const loadRoom = async () => {
                       <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>answered</span>
                       <button
                         onClick={() => handleSaveToBank(q)}
-                        disabled={savingIds.has(q._id) || savedQuestionKeys.has(questionFingerprint(q))}
+                        disabled={savingIds.has(q._id) || isAlreadySaved(q._id)}
                         title="Save this question to your Question Bank"
                         style={{
                           marginTop: 6,
                           padding: '4px 10px',
-                          background: (q.source === 'bank' || savedQuestionKeys.has(questionFingerprint(q)))
+                          background: (q.source === 'bank' || isAlreadySaved(q._id))
                             ? '#ecfdf5'
                             : (savingIds.has(q._id) ? '#94a3b8' : '#3b82f6'),
-                          color: (q.source === 'bank' || savedQuestionKeys.has(questionFingerprint(q)))
+                          color: (q.source === 'bank' || isAlreadySaved(q._id))
                             ? '#047857'
                             : 'white',
                           border: 'none',
                           borderRadius: 6,
                           fontSize: 11,
                           fontWeight: 700,
-                          cursor: (savingIds.has(q._id) || savedQuestionKeys.has(questionFingerprint(q)))
+                          cursor: (savingIds.has(q._id) || isAlreadySaved(q._id))
                             ? 'default'
                             : 'pointer',
                           display: 'inline-flex',
@@ -1242,7 +1242,7 @@ const loadRoom = async () => {
                       >
                         {savingIds.has(q._id)
                           ? 'Saving...'
-                          : savedQuestionKeys.has(questionFingerprint(q))
+                          : isAlreadySaved(q._id)
                           ? 'Saved'
                           : q.source === 'bank'
                           ? 'From Bank'

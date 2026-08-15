@@ -12,6 +12,11 @@ const questionBankSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  folderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'QuestionBankFolder',
+    index: true
+  },
   type: {
     type: String,
     enum: ['MCQ', 'TF', 'MSQ', 'open-ended'],

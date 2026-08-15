@@ -41,6 +41,7 @@ export const useQuestionBankStore = create((set, get) => ({
   items: [],
   total: 0,
   topics: [],
+  folders: [],
   isLoading: false,
   error: '',
   sessionSavedIds: new Set(),
@@ -61,6 +62,15 @@ export const useQuestionBankStore = create((set, get) => ({
     try {
       const data = await questionBankApi.getTopics()
       set({ topics: data.topics || [] })
+    } catch {
+      // non-critical
+    }
+  },
+
+  fetchFolders: async () => {
+    try {
+      const data = await questionBankApi.getFolders()
+      set({ folders: data.folders || [] })
     } catch {
       // non-critical
     }
@@ -160,7 +170,7 @@ export const useQuestionBankStore = create((set, get) => ({
   // Clear the per-user staged queue (call on logout)
   clearAllOnLogout: () => {
     sessionSavedIds.clear()
-    set({ items: [], total: 0, topics: [], sessionSavedIds: new Set() })
+    set({ items: [], total: 0, topics: [], folders: [], sessionSavedIds: new Set() })
   },
 
   reuseQuestion: async (id, sessionId) => {
@@ -169,6 +179,16 @@ export const useQuestionBankStore = create((set, get) => ({
       return data.question
     } catch (e) {
       set({ error: e.message || 'Failed to reuse question' })
+      throw e
+    }
+  },
+
+  importByRoomCode: async (id, roomCode) => {
+    try {
+      const data = await questionBankApi.importByCode(id, roomCode)
+      return data
+    } catch (e) {
+      set({ error: e.message || 'Failed to import question' })
       throw e
     }
   },

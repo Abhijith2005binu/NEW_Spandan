@@ -101,7 +101,7 @@ const verifyRoomOwnership = async (roomId, userId) => {
 
 router.get('/', async (req, res) => {
   try {
-    const { search, topic, difficulty, page = 1, limit = 50 } = req.query
+    const { search, topic, difficulty, folderId, page = 1, limit = 50 } = req.query
     const pageNum = Math.max(1, Math.min(1000, parseInt(page, 10) || 1))
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 50))
     const query = { teacherId: req.user._id, isArchived: false }
@@ -112,6 +112,9 @@ router.get('/', async (req, res) => {
     }
     if (typeof origin === 'string' && origin.trim()) {
       query['provenance.origin'] = origin
+    }
+    if (typeof folderId === 'string' && mongoose.Types.ObjectId.isValid(folderId)) {
+      query.folderId = folderId
     }
     if (typeof tags === 'string' && tags.trim()) {
       const tagsArray = tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
@@ -143,10 +146,19 @@ router.post('/from-room-question', async (req, res) => {
     const { roomQuestion, roomId, topic, tags, difficulty } = body
     let verifiedRoomId = null
     if (roomId) verifiedRoomId = await verifyRoomOwnership(roomId, req.user._id)
+    
+    const QuestionBankFolder = (await import('../models/QuestionBankFolder.js')).default
+    const folder = verifiedRoomId ? await QuestionBankFolder.findOne({ roomId: verifiedRoomId }) : null
+
     const built = buildBankDocFromRoomQuestion(
       roomQuestion, req.user._id, verifiedRoomId, { topic, tags, difficulty }
     )
     if (!built.ok) return res.status(400).json({ success: false, error: built.error })
+    
+    if (folder) {
+      built.doc.folderId = folder._id
+    }
+
     const saved = await QuestionBank.create(built.doc)
     res.status(201).json({ success: true, question: saved })
   } catch (err) {
@@ -319,6 +331,58 @@ router.post('/:id/reuse', async (req, res) => {
   } catch (err) {
     console.error('[questionBank:reuse]', err)
     res.status(500).json({ success: false, error: 'Failed to reuse question' })
+  }
+})
+
+router.post('/:id/import-by-code', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { roomCode } = req.body
+    
+    if (!roomCode) {
+      return res.status(400).json({ success: false, error: 'roomCode is required' })
+    }
+    
+    const bankEntry = await QuestionBank.findOne({ _id: id, teacherId: req.user._id, isArchived: false })
+    if (!bankEntry) {
+      return res.status(404).json({ success: false, error: 'Question not found in bank' })
+    }
+    
+    const room = await Room.findOne({ code: roomCode, teacher: req.user._id })
+    if (!room) {
+      return res.status(404).json({ success: false, error: 'Room not found or you are not the owner' })
+    }
+    
+    const Question = (await import('../models/Question.js')).default
+    
+    const newQuestion = new Question({
+      roomId: room._id,
+      type: bankEntry.type === 'open-ended' ? 'MCQ' : bankEntry.type,
+      question: bankEntry.questionText,
+      options: bankEntry.options,
+      explanation: bankEntry.explanation,
+      status: 'approved',
+      sourceBankId: bankEntry._id,
+      createdBy: req.user._id
+    })
+    
+    await newQuestion.save()
+    
+    res.json({ success: true, question: newQuestion, roomName: room.name })
+  } catch (err) {
+    console.error('[questionBank:import-by-code]', err)
+    res.status(500).json({ success: false, error: 'Failed to import question' })
+  }
+})
+
+router.get('/folders', async (req, res) => {
+  try {
+    const QuestionBankFolder = (await import('../models/QuestionBankFolder.js')).default
+    const folders = await QuestionBankFolder.find({ teacherId: req.user._id }).sort({ createdAt: -1 })
+    res.json({ success: true, folders })
+  } catch (err) {
+    console.error('[questionBank:folders]', err)
+    res.status(500).json({ success: false, error: 'Failed to fetch folders' })
   }
 })
 

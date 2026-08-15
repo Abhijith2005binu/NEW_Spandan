@@ -94,8 +94,10 @@ export const questionBankApi = {
   prepareImport: (id) => api.get(`/question-bank/${id}/import-ready`),
   getRoomSavedIds: (roomId) => api.get(`/question-bank/room/${roomId}/saved`),
   reuse: (id, sessionId) => api.post(`/question-bank/${id}/reuse`, { sessionId }),
+  importByCode: (id, roomCode) => api.post(`/question-bank/${id}/import-by-code`, { roomCode }),
   archive: (id) => api.delete(`/question-bank/${id}`),
   getTopics: () => api.get('/question-bank/meta/topics'),
+  getFolders: () => api.get('/question-bank/folders'),
   getExportUrl: (format = 'csv') => {
     const { token } = useAuthStore.getState()
     return `${API_URL}/question-bank/export?format=${format}&token=${token}`
