@@ -117,8 +117,12 @@ function QuestionBankPage() {
               style={{ padding: '10px 14px', background: 'var(--bg-card)',
                        border: '1px solid var(--border-color)', color: 'var(--text-primary)',
                        borderRadius: 8, fontSize: 14, minWidth: 160 }}>
-              <option value="">All folders</option>
-              {folders.map(f => <option key={f._id} value={f._id}>📁 {f.name} ({f.roomCode})</option>)}
+              <option value="">📁 All folders</option>
+              {folders.map(f => (
+                <option key={f._id} value={f._id}>
+                  📁 {f.name} ({f.roomCode}){f.questionCount !== undefined ? ` • ${f.questionCount} Qs` : ''}
+                </option>
+              ))}
             </select>
             <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
               style={{ padding: '10px 14px', background: 'var(--bg-card)',
@@ -170,6 +174,12 @@ function QuestionBankPage() {
                                             q.difficulty === 'hard' ? '#f87171' : '#fbbf24' }}>
                         {q.difficulty}
                       </span>
+                      {q.folderId && (
+                        <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11,
+                                       fontWeight: 700, background: '#0ea5e920', color: '#38bdf8' }}>
+                          📁 {typeof q.folderId === 'object' ? `${q.folderId.name} (${q.folderId.roomCode})` : 'Room Folder'}
+                        </span>
+                      )}
                       {q.topic && (
                         <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11,
                                       fontWeight: 700, background: '#8b5cf620', color: '#a78bfa' }}>

@@ -92,11 +92,47 @@ router.post('/', authorize('teacher'), async (req, res) => {
     // literally (e.g. &quot;) on the student side.
     const sanitizedData = stripObject({ roomId, type, question, options, timeToAnswer, points, status, segmentIndex })
 
-    const newQuestion = new Question(sanitizedData)
-
     await newQuestion.save()
 
+    // Auto-capture to QuestionBank
+    try {
+      const QuestionBank = (await import('../models/QuestionBank.js')).default
+      const QuestionBankFolder = (await import('../models/QuestionBankFolder.js')).default
+      const Room = (await import('../models/Room.js')).default
 
+      let folder = await QuestionBankFolder.findOne({ roomId })
+      if (!folder) {
+        const room = await Room.findById(roomId).select('name code teacher').lean()
+        if (room) {
+          folder = await QuestionBankFolder.create({
+            teacherId: room.teacher,
+            name: room.name,
+            roomCode: room.code,
+            roomId: room._id
+          })
+        }
+      }
+
+      await QuestionBank.create({
+        teacherId: req.user._id,
+        folderId: folder ? folder._id : null,
+        type: newQuestion.type || 'MCQ',
+        questionText: newQuestion.question,
+        options: (newQuestion.options || []).map(o => ({ text: o.text, isCorrect: o.isCorrect === true })),
+        explanation: newQuestion.explanation || '',
+        timeToAnswer: newQuestion.timeToAnswer || 30,
+        topic: '',
+        difficulty: 'medium',
+        provenance: {
+          origin: 'manual',
+          sourceSessionId: roomId,
+          generatedAt: new Date(),
+          approvedAt: new Date()
+        }
+      })
+    } catch (qbErr) {
+      console.error('[Auto-Capture to QuestionBank Error]:', qbErr)
+    }
 
     res.status(201).json({
       success: true,
